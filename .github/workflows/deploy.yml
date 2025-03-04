@@ -21,11 +21,14 @@ jobs:
 
       - name: Deploy to Azure VM
         env:
-          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_USER: organic
           SERVER_IP: vpn-service.germanywestcentral.cloudapp.azure.com
         run: |
           ssh $SSH_USER@$SERVER_IP << 'EOF'
             # Navigate to project directory (create if it doesn't exist)
+            mkdir -p ~/dev
+            cd ~/dev
+            
             if [ ! -d "vpnservice" ]; then
               git clone https://github.com/organicnz/vpnservice.git
               cd vpnservice

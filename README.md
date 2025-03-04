@@ -1,43 +1,53 @@
-# VPN Subscription Service
+# VPN Service with Supabase and Telegram Bot
 
-A VPN service targeted for Russian users, based on 3x-ui (Xray) with Telegram bot payment integration.
+A complete VPN service solution with Supabase backend, Telegram bot for user interaction, and 3x-ui panel for VPN management.
 
 ## Components
 
-1. **VPN Server** - Based on 3x-ui/Xray
-2. **Telegram Bot** - For user registration, subscription management, and payments
-3. **Backend API** - Connects the VPN server with the Telegram bot
-4. **Admin Panel** - For managing users and subscriptions
+- **3x-ui VPN Panel**: Manages VPN configuration and connections
+- **Backend API**: Handles user management, payments, and subscription logic
+- **Admin Panel**: Web interface for administrators
+- **Telegram Bot**: User interface for registration and service management
 
-## Setup Instructions
+## Deployment Options
 
-### Prerequisites
+### Local Deployment
 
-- Docker and Docker Compose
-- Telegram Bot Token (from BotFather)
-- Server with a public IP address
-- Domain name (recommended)
-
-### Installation
-
-1. Clone the repository:
 ```bash
-git clone https://github.com/your-username/vpn-subscription-service.git
-cd vpn-subscription-service
-```
+# Clone the repository
+git clone https://github.com/organicnz/vpnservice.git
+cd vpnservice
 
-2. Configure the environment variables:
-```bash
+# Set up environment variables
 cp .env.example .env
-# Edit .env file with your settings
-```
+# Edit .env with your credentials
 
-3. Run the services:
-```bash
+# Start services
 docker-compose up -d
 ```
 
-4. Access the admin panel at `https://your-domain.com/admin`
+### Azure Deployment
+
+For deploying to Azure VMs:
+
+1. Create an Azure VM and note its domain (example: vpn-service.germanywestcentral.cloudapp.azure.com)
+2. Connect to your VM via SSH
+3. Install Docker and Docker Compose on the VM
+4. Clone this repository and set up environment variables
+5. Start the services with `docker-compose up -d`
+
+Make sure to open the required ports in Azure's Network Security Group:
+- 54321 (VPN Admin Panel)
+- 3000 (Backend API)
+- 8080 (Admin Dashboard)
+- 443 (HTTPS)
+- 80 (HTTP)
+
+## Services
+
+- VPN Admin Panel: https://your-domain:54321
+- Backend API: https://your-domain:3000
+- Admin Dashboard: https://your-domain:8080
 
 ## Features
 

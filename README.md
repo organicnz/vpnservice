@@ -58,6 +58,16 @@ git remote add origin https://YOUR_GITHUB_TOKEN@github.com/organicnz/vpnservice.
 git remote -v
 ```
 
+### Quick Commit & Push
+
+One-liner to add, commit, and push all changes:
+
+```bash
+git add . && git commit -m "Type(scope): descriptive message" && git push -u origin main
+```
+
+Replace the commit message with an appropriate type and description following conventional commit format.
+
 ## Services
 
 - VPN Admin Panel: https://your-domain:54321

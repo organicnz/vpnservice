@@ -43,6 +43,21 @@ Make sure to open the required ports in Azure's Network Security Group:
 - 443 (HTTPS)
 - 80 (HTTP)
 
+### GitHub Token Authentication
+
+For easier repository access without password prompts:
+
+```bash
+# Remove existing remote if present
+git remote remove origin
+
+# Add remote with token authentication
+git remote add origin https://YOUR_GITHUB_TOKEN@github.com/organicnz/vpnservice.git
+
+# Verify remote configuration
+git remote -v
+```
+
 ## Services
 
 - VPN Admin Panel: https://your-domain:54321
@@ -63,7 +78,7 @@ Make sure to open the required ports in Azure's Network Security Group:
 - 3x-ui/Xray for VPN server
 - Node.js for backend API
 - Telegram Bot API
-- MongoDB for data storage
+- Supabase for data storage
 - Docker for containerization
 
 ## Contributing

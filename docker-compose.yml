@@ -18,6 +18,12 @@ services:
       - ./data/xray/cert/:/root/cert/
     networks:
       - vpn-network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:54321/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
   # Backend API Service (Now using Supabase)
   backend:
@@ -44,6 +50,14 @@ services:
       - "3000:3000"
     networks:
       - vpn-network
+    depends_on:
+      xui:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Admin Panel
   admin:
@@ -53,7 +67,8 @@ services:
     container_name: vpn-admin
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_started
     environment:
       - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
@@ -62,6 +77,17 @@ services:
       - "8080:3000"  # Map container's 3000 port to host's 8080
     networks:
       - vpn-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
 networks:
   vpn-network:

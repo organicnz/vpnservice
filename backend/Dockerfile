@@ -1,23 +1,30 @@
 FROM node:20-alpine
 
+# Create non-root user for security
+RUN addgroup -S nodeapp && \
+    adduser -S -G nodeapp nodeapp
+
 WORKDIR /app
 
-# Install wget for healthcheck
-RUN apk --no-cache add wget
+# Install system dependencies
+RUN apk --no-cache add wget curl
 
-# Copy package.json and package-lock.json
+# Copy package files to leverage Docker's caching
 COPY package*.json ./
 
-# Install dependencies with clean cache to avoid any stale dependencies
-RUN npm cache clean --force && \
-    npm install && \
+# Install dependencies with production flag to avoid dev dependencies
+RUN npm ci --only=production && \
     npm cache clean --force
 
-# Copy the rest of the application
-COPY . .
+# Copy application code (exclude development files)
+COPY --chown=nodeapp:nodeapp . .
 
-# Create logs directory
-RUN mkdir -p logs
+# Create logs directory with proper permissions
+RUN mkdir -p logs && \
+    chown -R nodeapp:nodeapp logs
+
+# Switch to non-root user for security
+USER nodeapp
 
 # Expose the port
 EXPOSE 3000

@@ -5,11 +5,14 @@ FROM node:20-alpine AS base
 FROM base AS deps
 WORKDIR /app
 
+# Install additional tools needed for some npm packages
+RUN apk add --no-cache libc6-compat python3 make g++
+
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install dependencies
-RUN npm ci || npm install
+# Install dependencies with frozen lockfile to ensure reproducible builds
+RUN npm ci --prefer-offline --no-audit
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -44,20 +47,28 @@ ENV NEXT_TELEMETRY_DISABLED 1
 # Create a non-root user and set permissions
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
-USER nextjs
+
+# Set proper permissions for /tmp to avoid permission issues
+RUN mkdir -p /tmp/next
+RUN chmod -R 777 /tmp/next
+
+# Set the working directory to the app directory
+WORKDIR /app
 
 # Copy built application
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Switch to non-root user for enhanced security
+USER nextjs
+
 # Expose the listening port
 EXPOSE 3000
 
-# Set the correct permission for prerender cache
-RUN mkdir -p .next/cache/images
-RUN mkdir -p /tmp/next
-RUN chmod -R 777 /tmp/next
+# Add healthcheck to verify service is running
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD [ "node", "-e", "require('http').get('http://localhost:3000/', (res) => res.statusCode === 200 ? process.exit(0) : process.exit(1))" ]
 
 # Set the command to run the app
 CMD ["node", "server.js"] 

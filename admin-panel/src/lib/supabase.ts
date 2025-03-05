@@ -1,39 +1,134 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { APP_CONFIG } from '../app/config';
 
-// These environment variables are set by default when using Vercel
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-// Create a dummy client for static site generation if environment variables are missing
-const isBrowser = typeof window !== 'undefined';
-const isSSG = !isBrowser && (!supabaseUrl || !supabaseKey);
-
-// If we're in a server environment during static build with no env vars, return a dummy client
-// that will be replaced with the real client on the client side
-const dummyClient = {
-  from: () => ({
-    select: () => ({ data: null, error: null }),
-    insert: () => ({ data: null, error: null }),
-    update: () => ({ data: null, error: null }),
-    delete: () => ({ data: null, error: null }),
-    eq: () => ({ data: null, error: null }),
-  }),
-  auth: {
-    signIn: async () => ({ user: null, session: null, error: null }),
-    signOut: async () => ({ error: null }),
-    signInWithPassword: async () => ({ data: { user: null, session: null }, error: null }),
-    onAuthStateChange: () => ({ data: null, subscription: { unsubscribe: () => {} } }),
-    getUser: async () => ({ data: { user: null }, error: null }),
-    getSession: async () => ({ data: { session: null }, error: null }),
-    setSession: async () => ({ data: { session: null }, error: null }),
-    refreshSession: async () => ({ data: { session: null }, error: null }),
-    setAuth: () => {},
-  },
+// Define types for better type safety
+export type User = {
+  id: string;
+  email: string;
+  role: string;
+  created_at: string;
+  last_sign_in?: string;
 };
 
-// Create a real Supabase client only if we have the required environment variables
-export const supabase = isSSG 
-  ? dummyClient 
-  : createClient(supabaseUrl, supabaseKey);
+export type AuthSession = {
+  user: User | null;
+  access_token: string | null;
+  refresh_token: string | null;
+};
 
-export default supabase; 
+// Create a singleton instance of the Supabase client
+let supabaseInstance: SupabaseClient | null = null;
+
+/**
+ * Get or create a Supabase client instance
+ * This ensures we only create one instance per session
+ */
+export function getSupabaseClient(): SupabaseClient {
+  if (supabaseInstance === null) {
+    const supabaseUrl = APP_CONFIG.supabase.url;
+    const supabaseKey = APP_CONFIG.supabase.anonKey;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Supabase URL and anon key must be defined in environment variables');
+    }
+    
+    supabaseInstance = createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+    });
+  }
+  
+  return supabaseInstance;
+}
+
+/**
+ * Sign in with email and password
+ * @param email User email
+ * @param password User password
+ * @returns Session data or error
+ */
+export async function signInWithPassword(email: string, password: string): Promise<{ 
+  data: AuthSession | null; 
+  error: Error | null;
+}> {
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    
+    if (error) {
+      console.error('Sign in error:', error.message);
+      return { data: null, error };
+    }
+    
+    return { 
+      data: {
+        user: data.user as User,
+        access_token: data.session?.access_token || null,
+        refresh_token: data.session?.refresh_token || null,
+      }, 
+      error: null 
+    };
+  } catch (err) {
+    console.error('Unexpected error during sign in:', err);
+    return { 
+      data: null, 
+      error: err instanceof Error ? err : new Error('Unknown error during sign in') 
+    };
+  }
+}
+
+/**
+ * Sign out the current user
+ * @returns Success status or error
+ */
+export async function signOut(): Promise<{ success: boolean; error: Error | null }> {
+  try {
+    const supabase = getSupabaseClient();
+    const { error } = await supabase.auth.signOut();
+    
+    if (error) {
+      console.error('Sign out error:', error.message);
+      return { success: false, error };
+    }
+    
+    return { success: true, error: null };
+  } catch (err) {
+    console.error('Unexpected error during sign out:', err);
+    return { 
+      success: false, 
+      error: err instanceof Error ? err : new Error('Unknown error during sign out') 
+    };
+  }
+}
+
+/**
+ * Get the current session
+ * @returns Current session or null if not signed in
+ */
+export async function getCurrentSession(): Promise<AuthSession | null> {
+  try {
+    const supabase = getSupabaseClient();
+    const { data } = await supabase.auth.getSession();
+    
+    if (!data.session) {
+      return null;
+    }
+    
+    return {
+      user: data.session.user as User,
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+    };
+  } catch (err) {
+    console.error('Error getting current session:', err);
+    return null;
+  }
+}
+
+// Export the default client for direct use
+export default getSupabaseClient(); 

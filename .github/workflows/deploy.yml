@@ -8,9 +8,12 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # Prevent workflow from running too long
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Fetch all history for proper versioning
 
       - name: Set up SSH
         uses: shimataro/ssh-key-action@v2
@@ -20,12 +23,14 @@ jobs:
           if_key_exists: fail
 
       - name: Deploy to Azure VM
+        id: deploy
         env:
           SSH_USER: organic
           SERVER_IP: vpn-service.germanywestcentral.cloudapp.azure.com
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ssh $SSH_USER@$SERVER_IP << 'ENDSSH'
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
+            set -e  # Exit immediately if a command exits with a non-zero status
             echo "===== Starting Deployment Process ====="
             
             # Install Docker if not present
@@ -59,7 +64,7 @@ jobs:
             else
               cd vpnservice
               echo "Pulling latest changes..."
-              git fetch
+              git fetch --prune
               git reset --hard origin/main
             fi
 
@@ -88,27 +93,60 @@ jobs:
               echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> .env
             fi
 
+            # Pre-check for running containers to identify potential issues
+            echo "Checking currently running containers..."
+            docker ps -a
+
+            # Pull latest images to ensure we have them before stopping services
+            echo "Pulling latest Docker images..."
+            if command -v docker-compose &> /dev/null; then
+              docker-compose pull
+            else
+              docker compose pull
+            fi
+
             # Start or restart Docker services
             echo "Starting Docker services..."
             if command -v docker-compose &> /dev/null; then
               docker-compose down
-              docker-compose up -d
+              docker-compose up -d --build
             else
               docker compose down
-              docker compose up -d
+              docker compose up -d --build
             fi
 
             # Verify services are running
             echo "===== Deployed Services ====="
             docker ps
             
-            # Check if backend service is running
-            if ! docker ps | grep -q vpn-backend; then
-              echo "❌ Backend service is not running, checking logs..."
-              docker ps -a | grep vpn-backend
-              echo "===== Backend Service Logs ====="
-              docker logs vpn-backend 2>&1 || echo "No logs available - container might have failed to start"
+            # Function to check service status
+            check_service() {
+              local service_name=$1
+              local max_attempts=${2:-10}
+              local attempt=1
               
+              echo "Checking if $service_name service is running..."
+              
+              while [ $attempt -le $max_attempts ]; do
+                if docker ps | grep -q $service_name; then
+                  echo "✅ $service_name service is running"
+                  return 0
+                else
+                  echo "⌛ Attempt $attempt: $service_name service is not running yet. Waiting..."
+                  sleep 5
+                  attempt=$((attempt+1))
+                fi
+              done
+              
+              echo "❌ $service_name service failed to start after $max_attempts attempts"
+              docker ps -a | grep $service_name
+              echo "===== $service_name Service Logs ====="
+              docker logs $service_name 2>&1 || echo "No logs available - container might have failed to start"
+              return 1
+            }
+            
+            # Check if backend service is running
+            if ! check_service vpn-backend; then
               echo "===== Backend Build Logs ====="
               docker images | grep backend
               docker history vpnservice-backend:latest --no-trunc || echo "Image not found"
@@ -124,9 +162,8 @@ jobs:
             fi
 
             # Check if admin panel service is running
-            if ! docker ps | grep -q vpn-admin; then
-              echo "⚠️ Admin panel service is not running, checking logs..."
-              docker ps -a | grep vpn-admin
+            if ! check_service vpn-admin 5; then
+              echo "⚠️ Admin panel service failed to start, checking logs..."
               echo "===== Admin Panel Service Logs ====="
               docker logs vpn-admin 2>&1 || echo "No logs available - container might have failed to start"
               
@@ -135,8 +172,8 @@ jobs:
             fi
 
             # Wait for services to start
-            echo "Waiting for services to initialize (30 seconds)..."
-            sleep 30
+            echo "Waiting for services to initialize (20 seconds)..."
+            sleep 20
 
             # Install curl for testing if not present
             if ! command -v curl &> /dev/null; then
@@ -242,9 +279,20 @@ jobs:
             echo "Telegram Bot: @CyberDolphinBot"
             
             echo "===== Deployment Complete ====="
+            exit 0
           ENDSSH
 
+      - name: Post-deployment verification
+        if: steps.deploy.outcome == 'success'
+        run: |
+          echo "Deployment was successful!"
+          echo "Remember to verify the following services are running:"
+          echo "- VPN Admin Panel (port 54321)"
+          echo "- Backend API (port 3000)"
+          echo "- Admin Dashboard (port 8080)"
+
       - name: Commit changes
+        if: steps.deploy.outcome == 'success'
         run: >-
           git add . &&
           git commit -m "Chore(deps): update Node.js from 18 to 20 across all services" &&

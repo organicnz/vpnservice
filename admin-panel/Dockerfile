@@ -20,6 +20,11 @@ COPY . .
 # Set environment variables
 ENV NEXT_TELEMETRY_DISABLED 1
 ENV NODE_ENV production
+# Provide dummy values for build time to prevent build failures
+# These will be overridden at runtime with real values
+ENV NEXT_PUBLIC_SUPABASE_URL=https://dummy-value-for-build.supabase.co
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=dummy-key-for-build-only
+ENV NEXT_PUBLIC_API_URL=http://localhost:3000
 
 # Build the application
 RUN npm run build

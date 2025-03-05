@@ -26,13 +26,15 @@ const Dashboard = () => {
           .eq('status', 'active');
         const { data: servers } = await supabase.from('servers').select('*');
           
-        // Update stats with real data
-        setStats({
-          totalUsers: users?.length || 0,
-          activeSubscriptions: subscriptions?.length || 0,
-          servers: servers?.length || 0,
-          revenueThisMonth: calculateRevenue(subscriptions || []),
-        });
+        // Only update stats if we have valid data (not in SSG)
+        if (users !== null && subscriptions !== null && servers !== null) {
+          setStats({
+            totalUsers: users.length || 0,
+            activeSubscriptions: subscriptions.length || 0,
+            servers: servers.length || 0,
+            revenueThisMonth: calculateRevenue(subscriptions || []),
+          });
+        }
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
         // For demo, use placeholder data if error

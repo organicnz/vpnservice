@@ -1,4 +1,5 @@
 # VPN Service with Supabase and Telegram Bot
+![Deployment Status](https://github.com/organicnz/vpnservice/actions/workflows/deploy.yml/badge.svg)
 
 A complete VPN service solution with Supabase backend, Telegram bot for user interaction, and 3x-ui panel for VPN management.
 

@@ -31,7 +31,7 @@ const Dashboard = () => {
           totalUsers: users?.length || 0,
           activeSubscriptions: subscriptions?.length || 0,
           servers: servers?.length || 0,
-          revenueThisMonth: calculateRevenue(subscriptions),
+          revenueThisMonth: calculateRevenue(subscriptions || []),
         });
       } catch (error) {
         console.error('Error fetching dashboard data:', error);

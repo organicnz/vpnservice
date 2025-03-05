@@ -15,7 +15,6 @@ const nextConfig = {
     unoptimized: process.env.NODE_ENV === 'development',
     domains: ['supabase.co'],
   },
-  // Server Actions are enabled by default in Next.js 14
 };
 
 module.exports = nextConfig; 

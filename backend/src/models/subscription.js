@@ -1,105 +1,187 @@
-const mongoose = require('mongoose');
+// Supabase Subscription model helper functions
+const { supabase, supabaseAdmin } = require('./supabaseClient');
 
-const subscriptionSchema = new mongoose.Schema({
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+const SubscriptionModel = {
+  /**
+   * Create a new subscription
+   * @param {Object} subscriptionData Subscription data
+   * @returns {Promise<Object>} Created subscription
+   */
+  async create(subscriptionData) {
+    if (!supabase) throw new Error('Supabase client not initialized');
+    
+    const { data, error } = await supabase
+      .from('subscriptions')
+      .insert([{
+        user_id: subscriptionData.userId,
+        plan_id: subscriptionData.planId,
+        plan_name: subscriptionData.planName,
+        status: subscriptionData.status || 'active',
+        traffic_limit: subscriptionData.trafficLimit,
+        used_traffic: subscriptionData.usedTraffic || 0,
+        start_date: subscriptionData.startDate,
+        end_date: subscriptionData.endDate,
+        auto_renew: subscriptionData.autoRenew || false,
+        payment_id: subscriptionData.paymentId,
+        last_checked_traffic: subscriptionData.lastCheckedTraffic,
+        notes: subscriptionData.notes
+      }])
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
-  planId: {
-    type: String,
-    required: true
+  
+  /**
+   * Get subscription by ID
+   * @param {string} id Subscription ID
+   * @returns {Promise<Object>} Subscription object
+   */
+  async getById(id) {
+    if (!supabase) throw new Error('Supabase client not initialized');
+    
+    const { data, error } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('id', id)
+      .single();
+    
+    if (error) throw error;
+    
+    // Add virtual properties
+    if (data) {
+      data.remainingTraffic = Math.max(0, data.traffic_limit - data.used_traffic);
+      data.remainingDays = calculateRemainingDays(data.end_date);
+      data.isActive = isSubscriptionActive(data);
+    }
+    
+    return data;
   },
-  planName: {
-    type: String,
-    required: true
+  
+  /**
+   * Get active subscriptions for a user
+   * @param {string} userId User ID
+   * @returns {Promise<Array>} Array of subscription objects
+   */
+  async getActiveByUserId(userId) {
+    if (!supabase) throw new Error('Supabase client not initialized');
+    
+    const { data, error } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    
+    // Add virtual properties to each subscription
+    if (data) {
+      data.forEach(subscription => {
+        subscription.remainingTraffic = Math.max(0, subscription.traffic_limit - subscription.used_traffic);
+        subscription.remainingDays = calculateRemainingDays(subscription.end_date);
+        subscription.isActive = isSubscriptionActive(subscription);
+      });
+    }
+    
+    return data;
   },
-  status: {
-    type: String,
-    enum: ['active', 'expired', 'canceled', 'suspended'],
-    default: 'active'
+  
+  /**
+   * Update used traffic for a subscription
+   * @param {string} id Subscription ID
+   * @param {number} usedTraffic New used traffic value in GB
+   * @returns {Promise<Object>} Updated subscription
+   */
+  async updateUsedTraffic(id, usedTraffic) {
+    if (!supabase) throw new Error('Supabase client not initialized');
+    
+    const { data, error } = await supabase
+      .from('subscriptions')
+      .update({
+        used_traffic: usedTraffic,
+        last_checked_traffic: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
-  trafficLimit: {
-    type: Number, // in GB
-    required: true
+  
+  /**
+   * Update subscription status
+   * @param {string} id Subscription ID
+   * @param {string} status New status ('active', 'expired', 'canceled', 'suspended')
+   * @returns {Promise<Object>} Updated subscription
+   */
+  async updateStatus(id, status) {
+    if (!supabase) throw new Error('Supabase client not initialized');
+    
+    if (!['active', 'expired', 'canceled', 'suspended'].includes(status)) {
+      throw new Error('Invalid subscription status');
+    }
+    
+    const { data, error } = await supabase
+      .from('subscriptions')
+      .update({
+        status: status,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
-  usedTraffic: {
-    type: Number, // in GB
-    default: 0
-  },
-  startDate: {
-    type: Date,
-    required: true
-  },
-  endDate: {
-    type: Date,
-    required: true
-  },
-  autoRenew: {
-    type: Boolean,
-    default: false
-  },
-  paymentId: {
-    type: String
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now
-  },
-  lastCheckedTraffic: {
-    type: Date
-  },
-  notes: {
-    type: String
+  
+  /**
+   * Check for subscriptions that need to be expired
+   * @returns {Promise<number>} Number of subscriptions updated
+   */
+  async expireOldSubscriptions() {
+    if (!supabaseAdmin) throw new Error('Supabase admin client not initialized');
+    
+    const now = new Date().toISOString();
+    
+    const { data, error } = await supabaseAdmin
+      .from('subscriptions')
+      .update({
+        status: 'expired',
+        updated_at: now
+      })
+      .eq('status', 'active')
+      .lt('end_date', now);
+    
+    if (error) throw error;
+    return data ? data.length : 0;
   }
-}, {
-  timestamps: true
-});
+};
 
-// Virtual for remaining traffic
-subscriptionSchema.virtual('remainingTraffic').get(function() {
-  return Math.max(0, this.trafficLimit - this.usedTraffic);
-});
-
-// Virtual for remaining days
-subscriptionSchema.virtual('remainingDays').get(function() {
+// Helper function to calculate remaining days
+function calculateRemainingDays(endDate) {
   const now = new Date();
-  const endDate = new Date(this.endDate);
+  const end = new Date(endDate);
   
   // Calculate difference in days
-  const diff = endDate - now;
+  const diff = end - now;
   const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
   
   return Math.max(0, days);
-});
+}
 
-// Method to check if subscription is active
-subscriptionSchema.methods.isActive = function() {
+// Helper function to check if subscription is active
+function isSubscriptionActive(subscription) {
   const now = new Date();
   return (
-    this.status === 'active' &&
-    new Date(this.endDate) > now &&
-    (this.usedTraffic < this.trafficLimit || this.trafficLimit === 0)
+    subscription.status === 'active' &&
+    new Date(subscription.end_date) > now &&
+    (subscription.used_traffic < subscription.traffic_limit || subscription.traffic_limit === 0)
   );
-};
+}
 
-// Method to check if subscription is about to expire
-subscriptionSchema.methods.isAboutToExpire = function(daysThreshold = 3) {
-  return this.isActive() && this.remainingDays <= daysThreshold;
-};
-
-// Method to check if traffic limit is almost reached
-subscriptionSchema.methods.isTrafficAlmostReached = function(percentThreshold = 90) {
-  if (this.trafficLimit === 0) return false; // Unlimited traffic
-  
-  const usedPercent = (this.usedTraffic / this.trafficLimit) * 100;
-  return usedPercent >= percentThreshold;
-};
-
-const Subscription = mongoose.model('Subscription', subscriptionSchema);
-
-module.exports = Subscription; 
+module.exports = SubscriptionModel; 

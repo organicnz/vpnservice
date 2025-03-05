@@ -1,24 +1,25 @@
-require('dotenv').config();
+// Simple Express server with standalone health endpoint
 const express = require('express');
 const cors = require('cors');
+require('dotenv').config();
 
-// Create a new Express app
+// Create Express app
 const app = express();
 
-// Middleware
+// Add middleware
 app.use(cors());
 app.use(express.json());
 
-// Root route
+// Define root route
 app.get('/', (req, res) => {
-  res.json({ message: 'VPN Subscription API' });
+  res.json({ message: 'VPN Service API - Running' });
 });
 
-// Health route
+// Define health route
 app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    message: 'VPN Service API is running',
+  res.json({
+    status: 'healthy',
+    message: 'Backend service is running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
   });
@@ -26,16 +27,12 @@ app.get('/health', (req, res) => {
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
-    error: 'Something went wrong!',
-    message: err.message
-  });
+  console.error('Error:', err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
+// Start server
 const PORT = process.env.PORT || 3000;
-
-// Start the server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 }); 

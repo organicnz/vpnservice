@@ -63,6 +63,23 @@ jobs:
               git reset --hard origin/main
             fi
 
+            # Create placeholder admin-panel directory if it doesn't exist
+            # This is needed because Docker context still looks for this directory
+            # even though the service is commented out in docker-compose.yml
+            if [ ! -d "admin-panel" ]; then
+              echo "Creating placeholder admin-panel directory..."
+              mkdir -p admin-panel
+              echo "This is a placeholder directory. Admin panel is not implemented yet." > admin-panel/README.md
+              # Create a placeholder Dockerfile to prevent errors
+              cat > admin-panel/Dockerfile << 'EOF'
+FROM nginx:alpine
+WORKDIR /usr/share/nginx/html
+COPY . .
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]
+EOF
+            fi
+
             # Copy .env file if it doesn't exist
             if [ ! -f ".env" ]; then
               echo "Setting up environment variables..."

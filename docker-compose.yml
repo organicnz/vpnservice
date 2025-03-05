@@ -35,9 +35,11 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - NODE_ENV=production
       - PORT=3000
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
+    # Comment out volume bindings for production deployment
+    # These can cause issues if the local file structure doesn't match the container
+    # volumes:
+    #   - ./backend:/app
+    #   - /app/node_modules
     ports:
       - "3000:3000"
     networks:

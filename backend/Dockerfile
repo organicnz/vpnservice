@@ -12,8 +12,8 @@ RUN apk --no-cache add wget curl
 # Copy package files to leverage Docker's caching
 COPY package*.json ./
 
-# Install dependencies with production flag to avoid dev dependencies
-RUN npm ci --only=production && \
+# Install dependencies - using npm install instead of npm ci since package-lock.json might not exist
+RUN npm install --omit=dev && \
     npm cache clean --force
 
 # Copy application code (exclude development files)

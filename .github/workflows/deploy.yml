@@ -8,7 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # Prevent workflow from running too long
+    timeout-minutes: 20  # Increased timeout to allow more time for first-time builds
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -97,6 +97,18 @@ jobs:
             echo "Checking currently running containers..."
             docker ps -a
 
+            # Check package-lock.json existence for potential npm ci issues
+            echo "Checking for package-lock.json files..."
+            if [ ! -f "./backend/package-lock.json" ]; then
+              echo "⚠️ Warning: No package-lock.json found in backend directory."
+              echo "The Docker build will use npm install instead of npm ci."
+            fi
+            
+            if [ ! -f "./admin-panel/package-lock.json" ]; then
+              echo "⚠️ Warning: No package-lock.json found in admin-panel directory."
+              echo "The Docker build will use npm install instead of npm ci."
+            fi
+
             # Pull latest images to ensure we have them before stopping services
             echo "Pulling latest Docker images..."
             if command -v docker-compose &> /dev/null; then
@@ -105,14 +117,32 @@ jobs:
               docker compose pull
             fi
 
-            # Start or restart Docker services
+            # Start or restart Docker services with improved error handling
             echo "Starting Docker services..."
             if command -v docker-compose &> /dev/null; then
               docker-compose down
-              docker-compose up -d --build
+              docker-compose build --no-cache || {
+                echo "❌ Docker Compose build failed. Checking build logs..."
+                docker-compose logs
+                exit 1
+              }
+              docker-compose up -d || {
+                echo "❌ Docker Compose up failed. Checking logs..."
+                docker-compose logs
+                exit 1
+              }
             else
               docker compose down
-              docker compose up -d --build
+              docker compose build --no-cache || {
+                echo "❌ Docker Compose build failed. Checking build logs..."
+                docker compose logs
+                exit 1
+              }
+              docker compose up -d || {
+                echo "❌ Docker Compose up failed. Checking logs..."
+                docker compose logs
+                exit 1
+              }
             fi
 
             # Verify services are running

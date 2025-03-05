@@ -11,8 +11,13 @@ RUN apk add --no-cache libc6-compat python3 make g++
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install dependencies with frozen lockfile to ensure reproducible builds
-RUN npm ci --prefer-offline --no-audit
+# Install dependencies with a more resilient approach
+RUN if [ -f package-lock.json ]; then \
+      npm ci --prefer-offline --no-audit; \
+    else \
+      echo "No package-lock.json found, using npm install instead"; \
+      npm install; \
+    fi
 
 # Rebuild the source code only when needed
 FROM base AS builder

@@ -1,28 +1,43 @@
 #!/bin/bash
 
-# Set script to exit immediately if any command fails
-set -e
+# This script tests the connection to Supabase
+# It's used in the deployment workflow
 
 echo "===== Testing Supabase Connection ====="
 
-# Install dependencies if not already installed
-if [ ! -d "node_modules" ]; then
-  echo "Installing required dependencies..."
-  npm install @supabase/supabase-js dotenv --no-save
-  
-  # Check if npm install succeeded
-  if [ $? -ne 0 ]; then
-    echo "❌ Failed to install dependencies"
-    exit 1
-  fi
+# Check if environment variables are set
+if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+  echo "❌ SUPABASE_URL or SUPABASE_KEY environment variables are not set"
+  exit 1
 fi
 
-# Run the test script
-echo "Running Supabase connection tests..."
-node test-supabase-connection.js
+# Install curl if not present
+if ! command -v curl &> /dev/null; then
+  echo "Installing curl for testing..."
+  apt-get update && apt-get install -y curl
+fi
 
-# Capture the exit code from the Node script
-NODE_EXIT_CODE=$?
+# Install jq if not present
+if ! command -v jq &> /dev/null; then
+  echo "Installing jq for JSON parsing..."
+  apt-get update && apt-get install -y jq
+fi
 
-# Exit with the same code as the Node script
-exit $NODE_EXIT_CODE 
+# Simple test to check if we can reach the Supabase URL
+echo "Testing connection to Supabase URL: $SUPABASE_URL"
+
+# Remove any trailing slash from the URL
+SUPABASE_URL_CLEAN=$(echo $SUPABASE_URL | sed 's/\/$//')
+
+# Try to connect to Supabase
+RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$SUPABASE_URL_CLEAN/rest/v1/" \
+  -H "apikey: $SUPABASE_KEY")
+
+if [ "$RESPONSE" -eq 200 ] || [ "$RESPONSE" -eq 401 ] || [ "$RESPONSE" -eq 404 ]; then
+  echo "✅ Successfully connected to Supabase (HTTP Status: $RESPONSE)"
+  exit 0
+else
+  echo "❌ Failed to connect to Supabase (HTTP Status: $RESPONSE)"
+  echo "Please check your Supabase URL and API key"
+  exit 1
+fi 

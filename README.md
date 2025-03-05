@@ -10,6 +10,7 @@ A modern VPN subscription management system with a Node.js backend and Next.js a
 - 🌐 **VPN Service Integration**: Automated provisioning of VPN credentials
 - 🤖 **Telegram Bot**: Customer support and account management via Telegram
 - 🚀 **Docker Deployment**: Containerized for easy deployment
+- 🔐 **GitHub Secrets Integration**: Secure configuration for public repositories
 
 ## Architecture
 
@@ -55,6 +56,17 @@ This project consists of several components:
    - Admin Panel: http://localhost:8080
    - Supabase Studio: http://localhost:54323
 
+### Security and GitHub Secrets
+
+This project is configured to use GitHub Secrets for protecting sensitive information. See the [SECURITY.md](SECURITY.md) file for detailed instructions on:
+
+- Setting up GitHub Secrets
+- What information to protect
+- Secure deployment workflow
+- Security best practices
+
+When making this repository public, ensure all sensitive information is moved to GitHub Secrets and referenced appropriately in the CI/CD workflow.
+
 ### Admin Panel Development
 
 For frontend development:
@@ -80,15 +92,14 @@ npm run dev
 The application can be deployed using Docker Compose or through the provided GitHub Actions workflow:
 
 1. Set up your production server with Docker and Docker Compose installed
-2. Configure your production environment variables
-3. Run `docker-compose -f docker-compose.prod.yml up -d`
+2. Configure your GitHub Secrets for secure deployment
+3. Deploy using the GitHub Actions workflow or run `docker-compose -f docker-compose.prod.yml up -d`
 
 ### CI/CD
 
 The project includes GitHub Actions workflows for continuous integration and deployment:
 
-- `.github/workflows/ci.yml`: Runs tests and linting on every push
-- `.github/workflows/deploy.yml`: Deploys to production when merging to main branch
+- `.github/workflows/workflow.yml`: Tests, builds, and deploys the application securely using GitHub Secrets
 
 ## Project Structure
 
@@ -98,7 +109,7 @@ The project includes GitHub Actions workflows for continuous integration and dep
 ├── backend/               # Node.js API server
 ├── .github/               # GitHub Actions workflows
 ├── docker-compose.yml     # Development Docker Compose
-├── docker-compose.prod.yml # Production Docker Compose
+├── SECURITY.md            # Security documentation
 └── .env.example           # Environment variables template
 ```
 

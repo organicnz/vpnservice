@@ -236,11 +236,16 @@ jobs:
             if [ ! -f ".env" ]; then
               echo "Setting up environment variables..."
               cp .env.example .env
-              # Here you would edit .env with the correct values
+              # Update with GitHub secrets
               echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
               echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> .env
               echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> .env
               echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> .env
+              echo "XUI_USERNAME=${{ secrets.XUI_USERNAME }}" >> .env
+              echo "XUI_PASSWORD=${{ secrets.XUI_PASSWORD }}" >> .env
+              echo "TIMEZONE=${{ secrets.TIMEZONE || 'Europe/Moscow' }}" >> .env
+              echo "XRAY_VMESS_AEAD_FORCED=${{ secrets.XRAY_VMESS_AEAD_FORCED || 'false' }}" >> .env
+              echo "NODE_ENV=production" >> .env
             fi
 
             # Pre-check for running containers to identify potential issues

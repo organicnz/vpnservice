@@ -1,100 +1,110 @@
-# VPN Service with Supabase and Telegram Bot
-![Deployment Status](https://github.com/organicnz/vpnservice/actions/workflows/deploy.yml/badge.svg)
+# VPN Subscription Service
 
-A complete VPN service solution with Supabase backend, Telegram bot for user interaction, and 3x-ui panel for VPN management.
-
-## Components
-
-- **3x-ui VPN Panel**: Manages VPN configuration and connections
-- **Backend API**: Handles user management, payments, and subscription logic
-- **Admin Panel**: Web interface for administrators
-- **Telegram Bot**: User interface for registration and service management
-
-## Deployment Options
-
-### Local Deployment
-
-```bash
-# Clone the repository
-git clone https://github.com/organicnz/vpnservice.git
-cd vpnservice
-
-# Set up environment variables
-cp .env.example .env
-# Edit .env with your credentials
-
-# Start services
-docker-compose up -d
-```
-
-### Azure Deployment
-
-For deploying to Azure VMs:
-
-1. Create an Azure VM and note its domain (example: vpn-service.germanywestcentral.cloudapp.azure.com)
-2. Connect to your VM via SSH
-3. Install Docker and Docker Compose on the VM
-4. Clone this repository and set up environment variables
-5. Start the services with `docker-compose up -d`
-
-Make sure to open the required ports in Azure's Network Security Group:
-- 54321 (VPN Admin Panel)
-- 3000 (Backend API)
-- 8080 (Admin Dashboard)
-- 443 (HTTPS)
-- 80 (HTTP)
-
-### GitHub Token Authentication
-
-For easier repository access without password prompts:
-
-```bash
-# Remove existing remote if present
-git remote remove origin
-
-# Add remote with token authentication
-git remote add origin https://YOUR_GITHUB_TOKEN@github.com/organicnz/vpnservice.git
-
-# Verify remote configuration
-git remote -v
-```
-
-### Quick Commit & Push
-
-One-liner to add, commit, and push all changes:
-
-```bash
-git add . && git commit -m "Type(scope): descriptive message" && git push -u origin main
-```
-
-Replace the commit message with an appropriate type and description following conventional commit format.
-
-## Services
-
-- VPN Admin Panel: https://your-domain:54321
-- Backend API: https://your-domain:3000
-- Admin Dashboard: https://your-domain:8080
+A modern VPN subscription management system with a Node.js backend and Next.js admin panel.
 
 ## Features
 
-- User registration via Telegram
-- Multiple subscription plans
-- Automated payment processing
-- Traffic usage monitoring
-- Geographic server selection
-- Admin dashboard
+- 🔒 **Secure Authentication**: User authentication powered by Supabase
+- 💳 **Subscription Management**: Handle customer subscriptions and payments
+- 📊 **Admin Dashboard**: Modern Next.js admin interface with real-time data
+- 🌐 **VPN Service Integration**: Automated provisioning of VPN credentials
+- 🤖 **Telegram Bot**: Customer support and account management via Telegram
+- 🚀 **Docker Deployment**: Containerized for easy deployment
 
-## Technology Stack
+## Architecture
 
-- 3x-ui/Xray for VPN server
-- Node.js for backend API
-- Telegram Bot API
-- Supabase for data storage
-- Docker for containerization
+This project consists of several components:
+
+- **Backend API**: Node.js REST API service
+- **Admin Panel**: Next.js web application for administration
+- **Database**: PostgreSQL managed by Supabase
+- **VPN Server**: Integration with OpenVPN/WireGuard
+- **Telegram Bot**: Node.js bot for customer interactions
+
+## Prerequisites
+
+- Node.js 20.x or higher
+- Docker and Docker Compose
+- Supabase account
+- Telegram Bot token (for bot functionality)
+
+## Getting Started
+
+### Development Setup
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-username/vpnservice.git
+   cd vpnservice
+   ```
+
+2. Copy the environment variables template:
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Update the `.env` file with your own values.
+
+4. Start the development environment:
+   ```bash
+   docker-compose up -d
+   ```
+
+5. Access the services:
+   - Backend API: http://localhost:3000/api
+   - Admin Panel: http://localhost:8080
+   - Supabase Studio: http://localhost:54323
+
+### Admin Panel Development
+
+For frontend development:
+
+```bash
+cd admin-panel
+npm install
+npm run dev
+```
+
+### Backend Development
+
+For backend API development:
+
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+## Deployment
+
+The application can be deployed using Docker Compose or through the provided GitHub Actions workflow:
+
+1. Set up your production server with Docker and Docker Compose installed
+2. Configure your production environment variables
+3. Run `docker-compose -f docker-compose.prod.yml up -d`
+
+### CI/CD
+
+The project includes GitHub Actions workflows for continuous integration and deployment:
+
+- `.github/workflows/ci.yml`: Runs tests and linting on every push
+- `.github/workflows/deploy.yml`: Deploys to production when merging to main branch
+
+## Project Structure
+
+```
+.
+├── admin-panel/           # Next.js admin panel
+├── backend/               # Node.js API server
+├── .github/               # GitHub Actions workflows
+├── docker-compose.yml     # Development Docker Compose
+├── docker-compose.prod.yml # Production Docker Compose
+└── .env.example           # Environment variables template
+```
 
 ## Contributing
 
-Contributions are welcome! Please read the [CONTRIBUTING.md](CONTRIBUTING.md) file for guidelines.
+Please see the [CONTRIBUTING.md](CONTRIBUTING.md) file for guidelines on how to contribute to this project.
 
 ## License
 

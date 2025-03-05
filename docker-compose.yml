@@ -7,7 +7,7 @@ services:
     container_name: xray-ui
     restart: unless-stopped
     ports:
-      - "54321:54321" # Panel port
+      - "54321:2053" # Panel port (external:internal)
       - "443:443"     # HTTPS port (for Xray services)
       - "80:80"       # HTTP port (for certbot)
     environment:
@@ -19,7 +19,7 @@ services:
     networks:
       - vpn-network
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:54321/"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:2053/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -35,7 +35,7 @@ services:
     environment:
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_KEY=${SUPABASE_KEY}
-      - XUI_PANEL_URL=http://xui:54321
+      - XUI_PANEL_URL=http://xui:2053
       - XUI_USERNAME=admin
       - XUI_PASSWORD=admin
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}

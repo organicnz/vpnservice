@@ -5,6 +5,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import supabase from '@/lib/supabase';
 
+// Mark the layout as dynamic to prevent static generation during build
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 // Icons (simplified with emoji for brevity)
 const Icons = {
   Dashboard: '📊',
@@ -26,8 +30,18 @@ export default function DashboardLayout({
 
   useEffect(() => {
     const fetchUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      setUser(data.user);
+      try {
+        const { data, error } = await supabase.auth.getUser();
+        if (error) {
+          console.error('Error fetching user:', error);
+          return;
+        }
+        if (data && data.user) {
+          setUser(data.user);
+        }
+      } catch (err) {
+        console.error('Failed to fetch user:', err);
+      }
     };
 
     fetchUser();

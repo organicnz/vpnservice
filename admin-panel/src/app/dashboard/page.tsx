@@ -4,6 +4,10 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import supabase from '@/lib/supabase';
 
+// Mark the page as dynamic to prevent static generation during build
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 // Example dashboard widgets
 const Dashboard = () => {
   const [stats, setStats] = useState({

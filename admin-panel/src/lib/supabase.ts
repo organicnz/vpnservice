@@ -21,7 +21,13 @@ const dummyClient = {
   auth: {
     signIn: async () => ({ user: null, session: null, error: null }),
     signOut: async () => ({ error: null }),
+    signInWithPassword: async () => ({ data: { user: null, session: null }, error: null }),
     onAuthStateChange: () => ({ data: null, subscription: { unsubscribe: () => {} } }),
+    getUser: async () => ({ data: { user: null }, error: null }),
+    getSession: async () => ({ data: { session: null }, error: null }),
+    setSession: async () => ({ data: { session: null }, error: null }),
+    refreshSession: async () => ({ data: { session: null }, error: null }),
+    setAuth: () => {},
   },
 };
 

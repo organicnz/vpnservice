@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # 3x-ui VPN Panel
+  xui:
+    image: ghcr.io/mhsanaei/3x-ui:latest
+    container_name: xray-ui
+    restart: unless-stopped
+    ports:
+      - "54321:54321" # Panel port
+      - "443:443"     # HTTPS port (for Xray services)
+      - "80:80"       # HTTP port (for certbot)
+    environment:
+      - TZ=Europe/Moscow
+      - XRAY_VMESS_AEAD_FORCED=false
+    volumes:
+      - ./data/xray/db/:/etc/x-ui/
+      - ./data/xray/cert/:/root/cert/
+    networks:
+      - vpn-network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:54321/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # Backend API Service (Now using Supabase)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vpn-backend
+    restart: unless-stopped
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - XUI_PANEL_URL=http://xui:54321
+      - XUI_USERNAME=admin
+      - XUI_PASSWORD=admin
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - NODE_ENV=production
+      - PORT=3000
+    # Comment out volume bindings for production deployment
+    # These can cause issues if the local file structure doesn't match the container
+    # volumes:
+    #   - ./backend:/app
+    #   - /app/node_modules
+    ports:
+      - "3000:3000"
+    networks:
+      - vpn-network
+    depends_on:
+      xui:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Admin Panel
+  admin:
+    build:
+      context: ./admin-panel
+      dockerfile: Dockerfile
+    container_name: vpn-admin
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
+      - NEXT_PUBLIC_API_URL=http://backend:3000
+    ports:
+      - "8080:3000"  # Map container's 3000 port to host's 8080
+    networks:
+      - vpn-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+networks:
+  vpn-network:
+    driver: bridge 

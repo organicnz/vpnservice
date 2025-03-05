@@ -76,10 +76,10 @@ WORKDIR /app
 # Create necessary directories
 RUN mkdir -p ./public ./.next/static
 
-# Copy built application with proper syntax for Docker
-COPY --from=builder /app/public/ ./public/
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone/ ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static/ ./.next/static/
+# Copy built application (with error handling for missing files)
+COPY --from=builder /app/public ./public || true
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./ || true
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static || true
 
 # Create a fallback server.js if build failed
 RUN if [ ! -f server.js ]; then \

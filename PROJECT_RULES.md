@@ -1,0 +1,249 @@
+# VPN Service Project Rules & Best Practices
+
+## Table of Contents
+- [General Guidelines](#general-guidelines)
+- [Code Style & Formatting](#code-style--formatting)
+- [Project Structure](#project-structure)
+- [Next.js Best Practices](#nextjs-best-practices)
+- [Tailwind CSS Guidelines](#tailwind-css-guidelines)
+- [Supabase Integration](#supabase-integration)
+- [Docker & Deployment](#docker--deployment)
+- [Security Guidelines](#security-guidelines)
+- [Git Workflow](#git-workflow)
+- [Testing Strategy](#testing-strategy)
+
+## General Guidelines
+
+### Core Principles
+- **Simplicity First**: Prefer simple, maintainable solutions over complex ones
+- **Component-Based Development**: Build reusable components for consistent UX
+- **Performance Matters**: Optimize for speed and responsiveness
+- **Security Always**: Security is never an afterthought
+- **Documentation Driven**: Write documentation as you code, not after
+
+### Development Environment
+- Use Node.js v20.x or later
+- Use npm for package management
+- Follow a consistent IDE setup (VSCode recommended with recommended extensions)
+
+## Code Style & Formatting
+
+### TypeScript/JavaScript
+- Use TypeScript for all new code
+- Follow the ESLint configuration in the project
+- Use async/await for asynchronous code instead of Promises or callbacks
+- Use functional components with hooks for React
+- Use named exports for better tree-shaking and clarity
+
+### Naming Conventions
+- **Files/Directories**: kebab-case for files (`user-profile.tsx`)
+- **Components**: PascalCase (`UserProfile.tsx`)
+- **Hooks**: camelCase with `use` prefix (`useAuthState.ts`)
+- **Interfaces/Types**: PascalCase with descriptive names (`UserProfileProps`)
+- **Functions/Variables**: camelCase with descriptive names
+- **Constants**: UPPER_SNAKE_CASE for true constants
+- **API Endpoints**: kebab-case for routes (`/api/user-subscriptions`)
+
+### Code Comments
+- Use JSDoc style comments for functions and components
+- Explain "why" not "what" in comments
+- Keep TODO comments in format: `// TODO(username): description`
+
+## Project Structure
+
+### Frontend (Admin Panel)
+```
+admin-panel/
+├── public/                # Static assets
+├── src/
+│   ├── app/              # Next.js App Router pages
+│   │   ├── (auth)/       # Authentication-related routes (grouped)
+│   │   ├── dashboard/    # Dashboard routes
+│   │   ├── api/          # API Routes
+│   │   └── ...           
+│   ├── components/       # Shared React components
+│   │   ├── ui/           # UI components (buttons, inputs, etc.)
+│   │   ├── layout/       # Layout components
+│   │   └── features/     # Feature-specific components
+│   ├── hooks/            # Custom React hooks
+│   ├── lib/              # Utility libraries and integrations
+│   │   ├── supabase.ts   # Supabase client
+│   │   └── ...
+│   ├── types/            # TypeScript type definitions
+│   ├── utils/            # Utility functions
+│   └── styles/           # Global styles
+└── ...
+```
+
+### Backend
+```
+backend/
+├── src/
+│   ├── index.js          # Entry point
+│   ├── routes/           # API route definitions
+│   ├── controllers/      # Business logic
+│   ├── models/           # Data models
+│   ├── services/         # External service integrations
+│   ├── middleware/       # Express middleware
+│   └── utils/            # Utility functions
+└── ...
+```
+
+## Next.js Best Practices
+
+### Routing & Data Fetching
+- Use the App Router for all new development
+- Leverage React Server Components for server-rendered content
+- Use Server Actions for form submissions when possible
+- Implement proper loading states (`loading.tsx`) for each route
+- Use error boundaries (`error.tsx`) for fallback UI during errors
+- Implement proper metadata for SEO
+
+### State Management
+- Use React Context for global state only when necessary
+- Leverage Supabase for real-time data when appropriate
+- Prefer server-fetched data over client-side fetching
+- Use `useReducer` for complex state management instead of multiple `useState` calls
+
+### Performance Optimization
+- Implement code splitting using dynamic imports
+- Use `next/image` for optimized images
+- Preload critical data with `prefetch`
+- Add appropriate caching strategies (`revalidatePath`, etc.)
+- Use Suspense boundaries for component-level loading states
+
+## Tailwind CSS Guidelines
+
+### Organization
+- Follow the utility-first approach
+- Group Tailwind classes in this order:
+  1. Layout (display, position)
+  2. Box model (width, height, margin, padding)
+  3. Typography (font, text)
+  4. Visual (colors, backgrounds, borders)
+  5. Interactive (hover, focus)
+  6. Miscellaneous
+
+### Custom Components
+- Create custom component classes in `src/styles/globals.css` when needed
+- Use `@apply` for complex, frequently used style combinations
+- Follow the design system for colors, spacing, and typography
+
+### Responsive Design
+- Design mobile-first, then add responsive variants
+- Use Tailwind's responsive prefixes (`sm:`, `md:`, `lg:`, `xl:`)
+- Test on multiple viewport sizes regularly
+
+## Supabase Integration
+
+### Authentication
+- Use Supabase Auth for user authentication
+- Implement proper session management
+- Use Row Level Security (RLS) to protect data
+- Implement proper role-based access control
+
+### Database
+- Design tables with RLS in mind
+- Use foreign key constraints for data integrity
+- Optimize queries with appropriate indexes
+- Use transactions for operations that modify multiple tables
+
+### API Integration
+- Create typed helper functions for Supabase queries
+- Handle errors gracefully with proper user feedback
+- Implement retry logic for transient failures
+- Cache frequently accessed data
+
+## Docker & Deployment
+
+### Containerization
+- Keep Docker images as small as possible
+- Use multi-stage builds for efficiency
+- Don't run containers as root
+- Use environment variables for configuration
+- Include health checks for all services
+
+### CI/CD Pipeline
+- Automated tests must pass before deployment
+- Follow semantic versioning for releases
+- Use feature flags for staged rollouts
+- Document all environment variables
+
+### Environment Configuration
+- Never commit secrets to the repository
+- Use `.env.example` to document required variables
+- Validate environment variables on startup
+- Use different configurations for dev/stage/prod
+
+## Security Guidelines
+
+### Authentication & Authorization
+- Implement proper authentication for all endpoints
+- Use JWT with appropriate expiration
+- Implement rate limiting for sensitive endpoints
+- Use HTTPS for all communications
+
+### Data Protection
+- Never store sensitive data in client-side code
+- Encrypt sensitive data in transit and at rest
+- Implement proper input validation
+- Sanitize user inputs to prevent injection attacks
+
+### API Security
+- Implement CORS with appropriate origins
+- Add rate limiting to prevent abuse
+- Log security-relevant events
+- Regularly review and update dependencies
+
+## Git Workflow
+
+### Branching Strategy
+- `main`: Production-ready code
+- `develop`: Integration branch for new features
+- Feature branches: `feature/feature-name`
+- Bugfix branches: `fix/issue-description`
+- Release branches: `release/version`
+
+### Commit Messages
+Follow the conventional commits specification:
+- `feat(component): add new component` - New features
+- `fix(api): fix api error` - Bug fixes
+- `docs(readme): update readme` - Documentation changes
+- `refactor(utils): refactor utils` - Code refactoring
+- `style(tailwind): add new tailwind class` - Style changes
+- `test(unit): add unit test` - Test additions/changes
+- `chore(deps): update dependencies` - Routine tasks, dependency updates
+
+### Pull Requests
+- Keep PRs focused on a single concern
+- Include meaningful descriptions
+- Reference issues being fixed
+- Require at least one review
+- Pass all automated checks
+
+## Testing Strategy
+
+### Unit Testing
+- Aim for 80%+ coverage on critical paths
+- Test business logic thoroughly
+- Use Jest for JavaScript/TypeScript testing
+- Mock external dependencies
+
+### Integration Testing
+- Test API endpoints with realistic data
+- Verify database interactions
+- Test authentication flows
+
+### End-to-End Testing
+- Cover critical user journeys
+- Test across supported browsers
+- Include mobile responsiveness tests
+
+### Accessibility Testing
+- Meet WCAG 2.1 AA standards
+- Use automated a11y testing tools
+- Perform manual testing with screen readers
+
+---
+
+These rules should be reviewed and updated periodically as the project evolves and new best practices emerge. 

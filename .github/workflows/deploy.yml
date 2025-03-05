@@ -64,18 +64,17 @@ jobs:
             fi
 
             # Create placeholder admin-panel directory if it doesn't exist
-            # This is needed because Docker context still looks for this directory
-            # even though the service is commented out in docker-compose.yml
             if [ ! -d "admin-panel" ]; then
               echo "Creating placeholder admin-panel directory..."
               mkdir -p admin-panel
               echo "This is a placeholder directory. Admin panel is not implemented yet." > admin-panel/README.md
-              # Create a placeholder Dockerfile to prevent errors
-              echo 'FROM nginx:alpine
-WORKDIR /usr/share/nginx/html
-COPY . .
-EXPOSE 8080
-CMD ["nginx", "-g", "daemon off;"]' > admin-panel/Dockerfile
+              
+              # Create a simple Dockerfile without heredoc
+              echo "FROM nginx:alpine" > admin-panel/Dockerfile
+              echo "WORKDIR /usr/share/nginx/html" >> admin-panel/Dockerfile
+              echo "COPY . ." >> admin-panel/Dockerfile
+              echo "EXPOSE 8080" >> admin-panel/Dockerfile
+              echo "CMD [\"nginx\", \"-g\", \"daemon off;\"]" >> admin-panel/Dockerfile
             fi
 
             # Copy .env file if it doesn't exist
@@ -83,7 +82,6 @@ CMD ["nginx", "-g", "daemon off;"]' > admin-panel/Dockerfile
               echo "Setting up environment variables..."
               cp .env.example .env
               # Here you would edit .env with the correct values
-              # For security, we've stored them as GitHub secrets
               echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
               echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> .env
               echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> .env
@@ -92,7 +90,6 @@ CMD ["nginx", "-g", "daemon off;"]' > admin-panel/Dockerfile
 
             # Start or restart Docker services
             echo "Starting Docker services..."
-            # First check if docker-compose or docker compose is available
             if command -v docker-compose &> /dev/null; then
               docker-compose down
               docker-compose up -d
@@ -112,7 +109,6 @@ CMD ["nginx", "-g", "daemon off;"]' > admin-panel/Dockerfile
               echo "===== Backend Service Logs ====="
               docker logs vpn-backend 2>&1 || echo "No logs available - container might have failed to start"
               
-              # Build logs might help understand what's happening
               echo "===== Backend Build Logs ====="
               docker images | grep backend
               docker history vpnservice-backend:latest --no-trunc || echo "Image not found"
@@ -221,7 +217,7 @@ CMD ["nginx", "-g", "daemon off;"]' > admin-panel/Dockerfile
             echo "Telegram Bot: @CyberDolphinBot"
             
             echo "===== Deployment Complete ====="
-          ENDSSH 
+          ENDSSH
 
       - name: Commit changes
         run: git add . && git commit -m "Fix(backend): update app structure and resolve container startup issues" && git push --set-upstream origin --force 

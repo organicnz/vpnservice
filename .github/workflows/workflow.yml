@@ -10,7 +10,7 @@ on:
       deploy_only:
         description: 'Skip tests and deploy directly'
         required: false
-        default: 'false'
+        default: false
         type: boolean
 
 jobs:

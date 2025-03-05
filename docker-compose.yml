@@ -64,6 +64,11 @@ services:
     build:
       context: ./admin-panel
       dockerfile: Dockerfile
+      args:
+        - NODE_ENV=production
+        - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL:-https://dummy-value-for-build.supabase.co}
+        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY:-dummy-key-for-build-only}
+        - NEXT_PUBLIC_API_URL=http://backend:3000
     container_name: vpn-admin
     restart: unless-stopped
     depends_on:

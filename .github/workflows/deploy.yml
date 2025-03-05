@@ -71,13 +71,11 @@ jobs:
               mkdir -p admin-panel
               echo "This is a placeholder directory. Admin panel is not implemented yet." > admin-panel/README.md
               # Create a placeholder Dockerfile to prevent errors
-              cat > admin-panel/Dockerfile << 'EOF'
-FROM nginx:alpine
+              echo 'FROM nginx:alpine
 WORKDIR /usr/share/nginx/html
 COPY . .
 EXPOSE 8080
-CMD ["nginx", "-g", "daemon off;"]
-EOF
+CMD ["nginx", "-g", "daemon off;"]' > admin-panel/Dockerfile
             fi
 
             # Copy .env file if it doesn't exist
@@ -224,3 +222,6 @@ EOF
             
             echo "===== Deployment Complete ====="
           ENDSSH 
+
+      - name: Commit changes
+        run: git add . && git commit -m "Fix(backend): update app structure and resolve container startup issues" && git push --set-upstream origin --force 

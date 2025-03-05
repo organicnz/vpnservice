@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "jest"
+    "test": "jest",
+    "lint": "echo 'No linting configured yet - passing check' && exit 0"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.5",

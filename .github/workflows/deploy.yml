@@ -69,12 +69,14 @@ jobs:
               mkdir -p admin-panel
               echo "This is a placeholder directory. Admin panel is not implemented yet." > admin-panel/README.md
               
-              # Create a simple Dockerfile without heredoc
-              echo "FROM nginx:alpine" > admin-panel/Dockerfile
-              echo "WORKDIR /usr/share/nginx/html" >> admin-panel/Dockerfile
-              echo "COPY . ." >> admin-panel/Dockerfile
-              echo "EXPOSE 8080" >> admin-panel/Dockerfile
-              echo "CMD [\"nginx\", \"-g\", \"daemon off;\"]" >> admin-panel/Dockerfile
+              # Create a simple Dockerfile - using a single command to avoid YAML syntax issues
+              cat > admin-panel/Dockerfile << EOF
+FROM node:20-alpine
+WORKDIR /usr/share/nginx/html
+COPY . .
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]
+EOF
             fi
 
             # Copy .env file if it doesn't exist
@@ -121,6 +123,17 @@ jobs:
               fi
               
               exit 1
+            fi
+
+            # Check if admin panel service is running
+            if ! docker ps | grep -q vpn-admin; then
+              echo "⚠️ Admin panel service is not running, checking logs..."
+              docker ps -a | grep vpn-admin
+              echo "===== Admin Panel Service Logs ====="
+              docker logs vpn-admin 2>&1 || echo "No logs available - container might have failed to start"
+              
+              # Not failing the build for this, continue with testing other services
+              echo "Continuing with other tests..."
             fi
 
             # Wait for services to start
@@ -197,7 +210,21 @@ jobs:
               echo "❌ test-connection.sh not found - skipping Supabase connection test"
             fi
             
-            # Note: Admin panel tests commented out since admin panel service is not implemented yet
+            # Test Admin Panel
+            echo "===== Testing Admin Panel ====="
+            if docker ps | grep -q vpn-admin; then
+              ADMIN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080)
+              if [ "$ADMIN_STATUS" -eq 200 ] || [ "$ADMIN_STATUS" -eq 302 ]; then
+                echo "✅ Admin panel is accessible"
+              else
+                echo "⚠️ Admin panel test failed - HTTP status: $ADMIN_STATUS"
+                echo "===== Admin Panel Logs ====="
+                docker logs vpn-admin
+                # Not failing the build for this, but showing the logs
+              fi
+            else
+              echo "⚠️ Admin panel container not running, skipping tests"
+            fi
             
             # Test VPN panel
             echo "===== Testing VPN Panel ====="
@@ -213,7 +240,7 @@ jobs:
             echo "===== Service Access Information ====="
             echo "VPN Admin Panel: https://vpn-service.germanywestcentral.cloudapp.azure.com:54321"
             echo "Backend API: https://vpn-service.germanywestcentral.cloudapp.azure.com:3000"
-            # echo "Admin Dashboard: https://vpn-service.germanywestcentral.cloudapp.azure.com:8080" # Commented out as admin panel is not implemented yet
+            echo "Admin Dashboard: https://vpn-service.germanywestcentral.cloudapp.azure.com:8080"
             echo "Telegram Bot: @CyberDolphinBot"
             
             echo "===== Deployment Complete ====="

@@ -2,10 +2,6 @@ const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 
-// Import routes
-const authRoutes = require('./routes/auth');
-const healthRoutes = require('./routes/health');
-
 // Initialize Supabase client
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
@@ -20,19 +16,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Inject Supabase client into requests
-app.use((req, res, next) => {
-  req.supabase = supabase;
-  next();
-});
-
-// Register routes
-app.use('/auth', authRoutes);
-app.use('/health', healthRoutes);
-
 // Root route
 app.get('/', (req, res) => {
   res.json({ message: 'VPN Subscription API' });
+});
+
+// Health route
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    message: 'VPN Service API is running',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
 });
 
 // Error handling middleware

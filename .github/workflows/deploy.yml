@@ -220,4 +220,7 @@ jobs:
           ENDSSH
 
       - name: Commit changes
-        run: git add . && git commit -m "Fix(backend): update app structure and resolve container startup issues" && git push --set-upstream origin --force 
+        run: >-
+          git add . &&
+          git commit -m "Fix(backend): update app structure and resolve container startup issues" &&
+          git push --set-upstream origin --force 

@@ -69,14 +69,12 @@ jobs:
               mkdir -p admin-panel
               echo "This is a placeholder directory. Admin panel is not implemented yet." > admin-panel/README.md
               
-              # Create a simple Dockerfile - using a single command to avoid YAML syntax issues
-              cat > admin-panel/Dockerfile << EOF
-FROM node:20-alpine
-WORKDIR /usr/share/nginx/html
-COPY . .
-EXPOSE 8080
-CMD ["nginx", "-g", "daemon off;"]
-EOF
+              # Create a simple Dockerfile - using separate echo commands instead of heredoc
+              echo "FROM node:20-alpine" > admin-panel/Dockerfile
+              echo "WORKDIR /usr/share/nginx/html" >> admin-panel/Dockerfile
+              echo "COPY . ." >> admin-panel/Dockerfile
+              echo "EXPOSE 8080" >> admin-panel/Dockerfile
+              echo "CMD [\"nginx\", \"-g\", \"daemon off;\"]" >> admin-panel/Dockerfile
             fi
 
             # Copy .env file if it doesn't exist
@@ -249,5 +247,5 @@ EOF
       - name: Commit changes
         run: >-
           git add . &&
-          git commit -m "Fix(backend): update app structure and resolve container startup issues" &&
+          git commit -m "Chore(deps): update Node.js from 18 to 20 across all services" &&
           git push --set-upstream origin --force 

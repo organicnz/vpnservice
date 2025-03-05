@@ -1,168 +1,160 @@
-// Conditional import of mongoose based on database type
-let mongoose;
-try {
-  mongoose = require('mongoose');
-} catch (error) {
-  console.warn('Mongoose not available, using Supabase instead');
-}
-
+/**
+ * User model implementation using Supabase
+ * Provides a Mongoose-like API for compatibility with existing code
+ */
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-// If mongoose is available, define the schema
-let User;
-
-if (mongoose) {
-  const userSchema = new mongoose.Schema({
-    telegramId: {
-      type: String,
-      required: true,
-      unique: true
-    },
-    username: {
-      type: String,
-      required: true
-    },
-    email: {
-      type: String,
-      required: true,
-      unique: true,
-      lowercase: true,
-      trim: true
-    },
-    password: {
-      type: String
-    },
-    role: {
-      type: String,
-      enum: ['user', 'admin'],
-      default: 'user'
-    },
-    isActive: {
-      type: Boolean,
-      default: true
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now
-    },
-    lastLoginAt: {
-      type: Date
-    },
-    vpnUsername: {
-      type: String
-    },
-    vpnPassword: {
-      type: String
+// Supabase-based User model
+const User = {
+  /**
+   * Find a user by query parameters
+   * @param {Object} query Query parameters (email, telegramId)
+   * @returns {Promise<Object>} User object or null
+   */
+  findOne: async function(query) {
+    // Get Supabase client from global scope or request
+    const supabase = global.supabase;
+    if (!supabase) {
+      console.error('Supabase client not initialized');
+      return null;
     }
-  }, {
-    timestamps: true
-  });
-
-  // Hash the password before saving
-  userSchema.pre('save', async function(next) {
-    const user = this;
-    if (user.password && user.isModified('password')) {
-      const salt = await bcrypt.genSalt(10);
-      user.password = await bcrypt.hash(user.password, salt);
-    }
-    next();
-  });
-
-  // Method to compare passwords
-  userSchema.methods.comparePassword = async function(candidatePassword) {
-    return bcrypt.compare(candidatePassword, this.password);
-  };
-
-  // Method to generate JWT token
-  userSchema.methods.generateAuthToken = function() {
-    const payload = {
-      id: this._id,
-      username: this.username,
-      email: this.email,
-      role: this.role
-    };
     
-    return jwt.sign(payload, process.env.JWT_SECRET || 'defaultsecret', { expiresIn: '7d' });
-  };
-
-  // Virtuals for active subscriptions
-  userSchema.virtual('activeSubscriptions', {
-    ref: 'Subscription',
-    localField: '_id',
-    foreignField: 'userId',
-    match: {
-      status: 'active',
-      endDate: { $gt: new Date() }
+    let supabaseQuery = supabase.from('users').select('*');
+    
+    // Convert mongoose-style queries to Supabase
+    if (query.email) {
+      supabaseQuery = supabaseQuery.eq('email', query.email);
+    } else if (query.telegramId) {
+      supabaseQuery = supabaseQuery.eq('telegram_id', query.telegramId);
     }
-  });
+    
+    const { data, error } = await supabaseQuery.maybeSingle();
+    
+    if (error || !data) return null;
+    
+    // Transform to match mongoose model structure and methods
+    return transformUserData(data);
+  },
+  
+  /**
+   * Find a user by ID
+   * @param {string} id User ID
+   * @returns {Promise<Object>} User object or null
+   */
+  findById: async function(id) {
+    const supabase = global.supabase;
+    if (!supabase) {
+      console.error('Supabase client not initialized');
+      return null;
+    }
+    
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+      
+    if (error || !data) return null;
+    
+    return transformUserData(data);
+  },
+  
+  /**
+   * Create a new user
+   * @param {Object} userData User data
+   * @returns {Promise<Object>} Created user
+   */
+  create: async function(userData) {
+    const supabase = global.supabase;
+    if (!supabase) {
+      throw new Error('Supabase client not initialized');
+    }
+    
+    // Hash password if provided
+    let userToCreate = { ...userData };
+    if (userToCreate.password) {
+      const salt = await bcrypt.genSalt(10);
+      userToCreate.password = await bcrypt.hash(userToCreate.password, salt);
+    }
+    
+    // Convert camelCase to snake_case for Supabase
+    if (userToCreate.telegramId) {
+      userToCreate.telegram_id = userToCreate.telegramId;
+      delete userToCreate.telegramId;
+    }
+    
+    if (userToCreate.lastLoginAt) {
+      userToCreate.last_login_at = userToCreate.lastLoginAt;
+      delete userToCreate.lastLoginAt;
+    }
+    
+    // Add timestamps
+    userToCreate.created_at = new Date().toISOString();
+    userToCreate.updated_at = new Date().toISOString();
+    
+    const { data, error } = await supabase
+      .from('users')
+      .insert(userToCreate)
+      .select()
+      .single();
+      
+    if (error) {
+      console.error('Error creating user:', error);
+      throw error;
+    }
+    
+    return transformUserData(data);
+  }
+};
 
-  User = mongoose.model('User', userSchema);
-} else {
-  // Supabase implementation
-  User = {
-    // Create a mock User class for Supabase that mimics Mongoose methods
-    findOne: async function(query) {
-      const { supabase } = global;
-      if (!supabase) throw new Error('Supabase client not initialized');
+/**
+ * Transform Supabase user data to match Mongoose model structure
+ * @param {Object} data User data from Supabase
+ * @returns {Object} Transformed user with Mongoose-like methods
+ */
+function transformUserData(data) {
+  return {
+    ...data,
+    _id: data.id,
+    telegramId: data.telegram_id,
+    lastLoginAt: data.last_login_at,
+    // Add Mongoose-like methods
+    comparePassword: async function(candidatePassword) {
+      return bcrypt.compare(candidatePassword, data.password);
+    },
+    generateAuthToken: function() {
+      const payload = {
+        id: data.id,
+        username: data.username,
+        email: data.email,
+        role: data.role
+      };
       
-      let supabaseQuery = supabase.from('users').select('*');
-      
-      if (query.email) {
-        supabaseQuery = supabaseQuery.eq('email', query.email);
-      } else if (query.telegramId) {
-        supabaseQuery = supabaseQuery.eq('telegram_id', query.telegramId);
+      return jwt.sign(
+        payload, 
+        process.env.JWT_SECRET || 'defaultsecret', 
+        { expiresIn: '7d' }
+      );
+    },
+    save: async function() {
+      const supabase = global.supabase;
+      if (!supabase) {
+        throw new Error('Supabase client not initialized');
       }
       
-      const { data, error } = await supabaseQuery.single();
-      
-      if (error) return null;
-      
-      // Transform to match mongoose model
-      return {
-        ...data,
-        _id: data.id,
-        comparePassword: async (password) => bcrypt.compare(password, data.password),
-        generateAuthToken: () => {
-          const payload = {
-            id: data.id,
-            username: data.username,
-            email: data.email,
-            role: data.role
-          };
-          
-          return jwt.sign(payload, process.env.JWT_SECRET || 'defaultsecret', { expiresIn: '7d' });
-        },
-        save: async () => {
-          const { data: updatedData, error } = await supabase
-            .from('users')
-            .update({
-              last_login_at: new Date().toISOString()
-            })
-            .eq('id', data.id);
-            
-          if (error) throw error;
-          return updatedData;
-        }
-      };
-    },
-    
-    findById: async function(id) {
-      const { supabase } = global;
-      if (!supabase) throw new Error('Supabase client not initialized');
-      
-      const { data, error } = await supabase
+      const { data: updatedData, error } = await supabase
         .from('users')
-        .select('*')
-        .eq('id', id)
+        .update({
+          last_login_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', data.id)
+        .select()
         .single();
         
-      if (error) return null;
-      
-      return {
-        ...data,
-        _id: data.id
-      };
+      if (error) throw error;
+      return transformUserData(updatedData);
     }
   };
 }

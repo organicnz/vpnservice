@@ -37,6 +37,7 @@ coverage/
 .DS_Store
 *.sublime-workspace
 *.sublime-project
+.cursor/
 
 # Supabase
 .supabase/
@@ -76,4 +77,5 @@ backend/.env
 backend/coverage/
 
 # Generated files
-*.generated.* 
+*.generated.*
+.history/ 

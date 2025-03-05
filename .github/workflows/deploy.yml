@@ -89,6 +89,28 @@ jobs:
             # Verify services are running
             echo "===== Deployed Services ====="
             docker ps
+            
+            # Check if backend service is running
+            if ! docker ps | grep -q vpn-backend; then
+              echo "❌ Backend service is not running, checking logs..."
+              docker ps -a | grep vpn-backend
+              echo "===== Backend Service Logs ====="
+              docker logs vpn-backend 2>&1 || echo "No logs available - container might have failed to start"
+              
+              # Build logs might help understand what's happening
+              echo "===== Backend Build Logs ====="
+              docker images | grep backend
+              docker history vpnservice-backend:latest --no-trunc || echo "Image not found"
+              
+              echo "===== Docker Compose Logs ====="
+              if command -v docker-compose &> /dev/null; then
+                docker-compose logs
+              else
+                docker compose logs
+              fi
+              
+              exit 1
+            fi
 
             # Wait for services to start
             echo "Waiting for services to initialize (30 seconds)..."
@@ -116,6 +138,9 @@ jobs:
               echo "✅ Backend API health endpoint returned status 200"
             else
               echo "❌ Backend API health check failed - HTTP status: $HTTP_STATUS"
+              # Display docker logs for debugging
+              echo "===== Backend Service Logs ====="
+              docker logs vpn-backend
               exit 1
             fi
             
@@ -127,6 +152,9 @@ jobs:
               echo "✅ Backend API health check passed - Service status: $API_STATUS"
             else
               echo "❌ Backend API health check failed - Unexpected response: $HEALTH_RESPONSE"
+              # Display docker logs for debugging
+              echo "===== Backend Service Logs ====="
+              docker logs vpn-backend
               exit 1
             fi
             
@@ -137,6 +165,9 @@ jobs:
               echo "✅ Backend API root endpoint returned status 200"
             else
               echo "❌ Backend API root endpoint test failed - HTTP status: $ROOT_STATUS"
+              # Display docker logs for debugging
+              echo "===== Backend Service Logs ====="
+              docker logs vpn-backend
               exit 1
             fi
 
@@ -155,15 +186,7 @@ jobs:
               echo "❌ test-connection.sh not found - skipping Supabase connection test"
             fi
             
-            # Test admin panel
-            echo "===== Testing Admin Panel ====="
-            ADMIN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/)
-            if [ "$ADMIN_STATUS" -eq 200 ] || [ "$ADMIN_STATUS" -eq 302 ]; then
-              echo "✅ Admin panel is accessible"
-            else
-              echo "❌ Admin panel test failed - HTTP status: $ADMIN_STATUS"
-              # Not failing the build for this, as it's not critical
-            fi
+            # Note: Admin panel tests commented out since admin panel service is not implemented yet
             
             # Test VPN panel
             echo "===== Testing VPN Panel ====="
@@ -179,7 +202,7 @@ jobs:
             echo "===== Service Access Information ====="
             echo "VPN Admin Panel: https://vpn-service.germanywestcentral.cloudapp.azure.com:54321"
             echo "Backend API: https://vpn-service.germanywestcentral.cloudapp.azure.com:3000"
-            echo "Admin Dashboard: https://vpn-service.germanywestcentral.cloudapp.azure.com:8080"
+            # echo "Admin Dashboard: https://vpn-service.germanywestcentral.cloudapp.azure.com:8080" # Commented out as admin panel is not implemented yet
             echo "Telegram Bot: @CyberDolphinBot"
             
             echo "===== Deployment Complete ====="

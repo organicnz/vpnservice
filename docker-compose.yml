@@ -43,25 +43,25 @@ services:
     networks:
       - vpn-network
 
-  # Admin Panel
-  admin:
-    build:
-      context: ./admin-panel
-      dockerfile: Dockerfile
-    container_name: vpn-admin
-    restart: unless-stopped
-    depends_on:
-      - backend
-    environment:
-      - BACKEND_URL=http://backend:3000
-      - PORT=8080
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./admin-panel:/app
-      - /app/node_modules
-    networks:
-      - vpn-network
+  # Admin Panel (Optional - commented out until admin panel is implemented)
+  # admin:
+  #   build:
+  #     context: ./admin-panel
+  #     dockerfile: Dockerfile
+  #   container_name: vpn-admin
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - backend
+  #   environment:
+  #     - BACKEND_URL=http://backend:3000
+  #     - PORT=8080
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - ./admin-panel:/app
+  #     - /app/node_modules
+  #   networks:
+  #     - vpn-network
 
 networks:
   vpn-network:

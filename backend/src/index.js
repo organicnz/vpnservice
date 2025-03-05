@@ -30,8 +30,18 @@ app.get('/', (req, res) => {
   res.json({ message: 'VPN Service API - Running' });
 });
 
-// Define health route
+// Define health route with both /health and /api/health 
 app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'Backend service is running',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Also add the health endpoint with /api prefix for compatibility
+app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     message: 'Backend service is running',
@@ -44,7 +54,7 @@ app.get('/health', (req, res) => {
 app.get('/api/supabase-status', async (req, res) => {
   // Check if Supabase is configured
   if (!supabaseUrl || !supabaseKey) {
-    return res.status(500).json({
+    return res.status(200).json({
       status: 'error',
       message: 'Supabase is not configured - environment variables missing',
       supabaseConfigured: false,
@@ -62,10 +72,10 @@ app.get('/api/supabase-status', async (req, res) => {
     }
 
     // Test a simple query to confirm connection
-    const { error } = await supabase.from('plans').select('id').limit(1);
+    const { data, error } = await supabase.from('plans').select('id').limit(1);
     
     if (error) {
-      return res.status(500).json({
+      return res.status(200).json({
         status: 'error',
         message: 'Failed to connect to Supabase',
         error: error.message,
@@ -79,7 +89,7 @@ app.get('/api/supabase-status', async (req, res) => {
       supabaseConfigured: true
     });
   } catch (error) {
-    return res.status(500).json({
+    return res.status(200).json({
       status: 'error',
       message: 'Error testing Supabase connection',
       error: error.message,

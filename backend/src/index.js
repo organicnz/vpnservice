@@ -1,32 +1,41 @@
 require('dotenv').config();
-const app = require('./app');
-const { setupBot } = require('./services/telegramBot');
-const logger = require('./utils/logger');
+const express = require('express');
+const cors = require('cors');
+
+// Create a new Express app
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Root route
+app.get('/', (req, res) => {
+  res.json({ message: 'VPN Subscription API' });
+});
+
+// Health route
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    message: 'VPN Service API is running',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    error: 'Something went wrong!',
+    message: err.message
+  });
+});
 
 const PORT = process.env.PORT || 3000;
 
 // Start the server
 app.listen(PORT, () => {
-  logger.info(`Server running on port ${PORT}`);
-  
-  // Setup Telegram bot if token is provided
-  if (process.env.TELEGRAM_BOT_TOKEN) {
-    try {
-      const bot = setupBot();
-      logger.info('Telegram bot started');
-    } catch (error) {
-      logger.error(`Failed to start Telegram bot: ${error.message}`);
-    }
-  } else {
-    logger.warn('TELEGRAM_BOT_TOKEN not provided. Telegram bot not started.');
-  }
-});
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (error) => {
-  logger.error(`Unhandled Rejection: ${error.message}`);
-  // Don't exit on unhandled rejections in production
-  if (process.env.NODE_ENV !== 'production') {
-    process.exit(1);
-  }
+  console.log(`Server running on port ${PORT}`);
 }); 

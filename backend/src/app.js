@@ -4,10 +4,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 // Import routes
 const authRoutes = require('./routes/auth');
-const userRoutes = require('./routes/users');
 const subscriptionRoutes = require('./routes/subscriptions');
-const paymentRoutes = require('./routes/payments');
-const serverRoutes = require('./routes/servers');
 const healthRoutes = require('./routes/health');
 
 // Initialize Supabase client
@@ -32,10 +29,7 @@ app.use((req, res, next) => {
 
 // Register routes
 app.use('/auth', authRoutes);
-app.use('/users', userRoutes);
 app.use('/subscriptions', subscriptionRoutes);
-app.use('/payments', paymentRoutes);
-app.use('/servers', serverRoutes);
 app.use('/health', healthRoutes);
 
 // Root route

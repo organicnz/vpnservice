@@ -25,6 +25,11 @@ ENV NODE_ENV production
 ENV NEXT_PUBLIC_SUPABASE_URL=https://dummy-value-for-build.supabase.co
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=dummy-key-for-build-only
 ENV NEXT_PUBLIC_API_URL=http://localhost:3000
+# Special env var to skip static generation of pages that need auth during build
+ENV SKIP_BUILD_STATIC_GENERATION=true
+
+# Create a temporary file to override exports in pages
+RUN echo '// This file tells Next.js to skip static generation\nexport const dynamic = "force-dynamic";\n' > ./src/app/skip-static.js
 
 # Build the application
 RUN npm run build

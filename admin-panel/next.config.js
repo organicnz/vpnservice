@@ -18,9 +18,15 @@ const nextConfig = {
     unoptimized: process.env.NODE_ENV === 'development',
     domains: ['supabase.co'],
   },
-  // Prevent Next.js from attempting to pre-render pages that need dynamic data
-  // This will prevent build failures when external services like Supabase are unavailable
-  staticPageGenerationTimeout: 30,
+  
+  // Completely disable static page generation and static exports
+  // This ensures all pages are server-rendered, avoiding issues with invalid environment variables during build
+  experimental: {
+    // Disable page rendering during build to avoid issues with missing environment variables
+    disableStaticGenerationForAppPages: true,
+  },
+  
+  // Skip optimizing in static exports, which prevents errors with revalidate values
   compiler: {
     // Enables the styled-components SWC transform
     styledComponents: true,

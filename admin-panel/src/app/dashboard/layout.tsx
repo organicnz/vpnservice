@@ -7,7 +7,6 @@ import supabase from '@/lib/supabase';
 
 // Mark the layout as dynamic to prevent static generation during build
 export const dynamic = 'force-dynamic';
-export const revalidate = 0;
 
 // Icons (simplified with emoji for brevity)
 const Icons = {

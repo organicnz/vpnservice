@@ -390,8 +390,8 @@ jobs:
             if ! command -v jq &> /dev/null; then
               echo "Installing jq for JSON parsing..."
               sudo apt-get update && sudo apt-get install -y jq
-# Use integrated test script if available
-if [ -f "scripts/run-all-tests.sh" ]; then
+            # Use integrated test script if available
+            if [ -f "scripts/run-all-tests.sh" ]; then
               echo "===== Running Comprehensive Test Suite ====="
               chmod +x scripts/run-all-tests.sh
               ./scripts/run-all-tests.sh || echo "⚠️ Some tests failed but deployment will continue"
@@ -575,7 +575,8 @@ if [ -f "scripts/run-all-tests.sh" ]; then
             
             # 5. Summarize VPN panel access status
             echo "===== VPN Panel Access Summary ====="
-fi             if docker ps | grep -q xray-ui; then
+            fi
+            if docker ps | grep -q xray-ui; then
               echo "✅ xray-ui container is running"
               
               # Get container health status

@@ -174,13 +174,8 @@ jobs:
     runs-on: ubuntu-latest
     # Only run deploy in following conditions:
     # 1. On main branch AND either build succeeded OR deploy_only is true
-    # 2. Manual workflow dispatch
-if: |
-(github.ref == 'refs/heads/main' && 
-(github.event.inputs.deploy_only == 'true' || needs.build.result == 'success')
-) || 
-github.event_name == 'workflow_dispatch'
     needs: [build]
+    if: (github.ref == 'refs/heads/main' && (github.event.inputs.deploy_only == 'true' || needs.build.result == 'success')) || github.event_name == 'workflow_dispatch'
     timeout-minutes: 20
     
     steps:

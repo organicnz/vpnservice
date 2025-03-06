@@ -260,6 +260,8 @@ jobs:
               echo "XUI_PASSWORD=${{ secrets.XUI_PASSWORD }}" >> .env
               echo "TIMEZONE=${{ secrets.TIMEZONE || 'Europe/Moscow' }}" >> .env
               echo "XRAY_VMESS_AEAD_FORCED=${{ secrets.XRAY_VMESS_AEAD_FORCED || 'false' }}" >> .env
+              echo "VPN_DOMAIN=${{ secrets.VPN_DOMAIN || 'vpn-service.germanywestcentral.cloudapp.azure.com' }}" >> .env
+              echo "VPN_ADMIN_EMAIL=${{ secrets.VPN_ADMIN_EMAIL || 'tamerlanium@gmail.com' }}" >> .env
               echo "NODE_ENV=production" >> .env
             fi
 
@@ -488,9 +490,12 @@ jobs:
 
             # Print access URLs
             echo "===== Service Access Information ====="
-            echo "VPN Admin Panel: https://vpn-service.germanywestcentral.cloudapp.azure.com:54321"
-            echo "Backend API: https://vpn-service.germanywestcentral.cloudapp.azure.com:3000"
-            echo "Admin Dashboard: https://vpn-service.germanywestcentral.cloudapp.azure.com:8080"
+            # Use domain from environment variable or default to the Azure domain
+            DOMAIN=${VPN_DOMAIN:-vpn-service.germanywestcentral.cloudapp.azure.com}
+            echo "VPN Admin Panel: https://$DOMAIN:54321"
+            echo "Backend API: https://$DOMAIN:3000"
+            echo "Admin Dashboard: https://$DOMAIN:8080"
+            echo "Admin Email: ${VPN_ADMIN_EMAIL:-tamerlanium@gmail.com}"
             echo "Telegram Bot: @CyberDolphinBot"
             
             echo "===== Deployment Complete ====="

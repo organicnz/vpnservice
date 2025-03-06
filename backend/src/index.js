@@ -19,43 +19,52 @@ const supabaseKey = process.env.SUPABASE_KEY;
 if (supabaseUrl && supabaseKey) {
   try {
     supabase = createClient(supabaseUrl, supabaseKey);
-    console.log('Supabase client initialized');
+    console.log('✅ Supabase client initialized successfully');
   } catch (error) {
-    console.error('Error initializing Supabase client:', error);
+    console.error('❌ Error initializing Supabase client:', error);
   }
+} else {
+  console.warn('⚠️ Supabase environment variables not found. Some features will be limited.');
+  console.warn('   To enable full functionality, set SUPABASE_URL and SUPABASE_KEY in your .env file.');
 }
 
-// Define root route
+// Define routes without prefix
+// Root route
 app.get('/', (req, res) => {
   res.json({ message: 'VPN Service API - Running' });
 });
 
-// Define health route with both /health and /api/health 
+// Health route
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     message: 'Backend service is running',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    supabase: supabase ? 'configured' : 'not configured'
   });
 });
 
-// Also add the health endpoint with /api prefix for compatibility
-app.get('/api/health', (req, res) => {
+// Create API router for prefixed routes
+const apiRouter = express.Router();
+
+// Duplicate the health endpoint on the API router
+apiRouter.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     message: 'Backend service is running',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    supabase: supabase ? 'configured' : 'not configured'
   });
 });
 
 // Supabase status route
-app.get('/api/supabase-status', async (req, res) => {
+apiRouter.get('/supabase-status', async (req, res) => {
   // Check if Supabase is configured
   if (!supabaseUrl || !supabaseKey) {
     return res.status(200).json({
-      status: 'error',
+      status: 'warning',
       message: 'Supabase is not configured - environment variables missing',
       supabaseConfigured: false,
       missingVars: {
@@ -72,34 +81,44 @@ app.get('/api/supabase-status', async (req, res) => {
     }
 
     // Test a simple query to confirm connection
-    const { data, error } = await supabase.from('plans').select('id').limit(1);
-    
-    if (error) {
+    try {
+      const { data, error } = await supabase.from('plans').select('id').limit(1);
+      
+      if (error) {
+        return res.status(200).json({
+          status: 'error',
+          message: 'Failed to connect to Supabase',
+          error: error.message,
+          supabaseConfigured: true
+        });
+      }
+
+      return res.json({
+        status: 'ok',
+        message: 'Successfully connected to Supabase',
+        supabaseConfigured: true,
+        data: data ? { count: data.length } : { count: 0 }
+      });
+    } catch (queryError) {
       return res.status(200).json({
         status: 'error',
-        message: 'Failed to connect to Supabase',
-        error: error.message,
+        message: 'Error querying Supabase',
+        error: queryError.message,
         supabaseConfigured: true
       });
     }
-
-    return res.json({
-      status: 'ok',
-      message: 'Successfully connected to Supabase',
-      supabaseConfigured: true
-    });
   } catch (error) {
     return res.status(200).json({
       status: 'error',
       message: 'Error testing Supabase connection',
       error: error.message,
-      supabaseConfigured: true
+      supabaseConfigured: false
     });
   }
 });
 
 // Environment variables check route (for debugging)
-app.get('/api/env-check', (req, res) => {
+apiRouter.get('/env-check', (req, res) => {
   res.json({
     // Return only presence status, not actual values for security
     supabaseUrl: !!process.env.SUPABASE_URL,
@@ -110,6 +129,9 @@ app.get('/api/env-check', (req, res) => {
   });
 });
 
+// Mount the API router at /api
+app.use('/api', apiRouter);
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
@@ -119,7 +141,7 @@ app.use((err, req, res, next) => {
 // Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`✅ Server running on port ${PORT}`);
   
   // Log environment variable status
   console.log('Environment Variables Status:');

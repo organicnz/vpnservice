@@ -187,4 +187,22 @@ Our CI/CD pipeline uses GitHub Actions for:
 2. Copy `.env.example` to `.env` and configure variables
 3. Run `docker-compose up` to start local development environment
 4. Make changes following the guidelines above
-5. Submit pull request 
+5. Submit pull request
+
+## Code Contribution Guidelines
+
+### Always Commit Code Changes
+- **Always commit your code changes** after making modifications
+- Use descriptive commit messages following the conventional commits specification
+- Push your changes to the repository after committing
+- When making multiple related changes, group them into logical commits
+
+### Commit Message Format
+Follow the conventional commits specification:
+- `feat(component): add new component` - New features
+- `fix(api): fix api error` - Bug fixes
+- `docs(readme): update readme` - Documentation changes
+- `refactor(utils): refactor utils` - Code refactoring
+- `style(tailwind): add new tailwind class` - Style changes
+- `test(unit): add unit test` - Test additions/changes
+- `chore(deps): update dependencies` - Routine tasks, dependency updates 

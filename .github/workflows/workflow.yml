@@ -465,6 +465,12 @@ jobs:
               fi
             fi
 
+            # Download and run our comprehensive VPN panel test script
+            echo "===== Running Detailed VPN Panel Test ====="
+            curl -s https://raw.githubusercontent.com/organicnz/vpnservice/main/test-vpn-panel.sh -o test-vpn-panel.sh
+            chmod +x test-vpn-panel.sh
+            ./test-vpn-panel.sh || true  # Run but don't fail deployment if it doesn't work
+
             # Print access URLs
             echo "===== Service Access Information ====="
             echo "VPN Admin Panel: https://vpn-service.germanywestcentral.cloudapp.azure.com:54321"

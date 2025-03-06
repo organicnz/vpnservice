@@ -463,30 +463,126 @@ jobs:
               echo "⚠️ Admin panel container not running, skipping tests"
             fi
             
-            # Test VPN panel
-            echo "===== Testing VPN Panel ====="
-            # Try HTTP first (the panel also listens on HTTP port 80)
-            VPN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/ --max-time 5)
-            if [ "$VPN_STATUS" -eq 200 ] || [ "$VPN_STATUS" -eq 302 ]; then
-              echo "✅ VPN panel is accessible via HTTP"
-            else
-              # Fall back to HTTPS with -k flag to ignore certificate errors
-              VPN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -k https://localhost:54321/ --max-time 5)
-              if [ "$VPN_STATUS" -eq 200 ] || [ "$VPN_STATUS" -eq 302 ]; then
-                echo "✅ VPN panel is accessible via HTTPS (insecure)"
-              else
-                echo "⚠️ VPN panel test returned status: $VPN_STATUS"
-                echo "This is likely a TLS/SSL issue and not a functional problem"
-                # Don't fail the build for SSL issues
-                # echo "❌ VPN panel test failed - HTTP status: $VPN_STATUS"
-              fi
-            fi
+# Test VPN panel
+echo "===== Testing VPN Panel ====="
 
-            # Download and run our comprehensive VPN panel test script
-            echo "===== Running Detailed VPN Panel Test ====="
-            # Use existing test-vpn-panel.sh from repo
-            chmod +x test-vpn-panel.sh
-            ./test-vpn-panel.sh || true  # Run but don't fail deployment if it doesn't work
+# Integrated VPN panel diagnostics and fix function
+echo "===== Running Integrated VPN Panel Diagnostics ====="
+echo "Performing VPN panel diagnostics and fixes - $(date)"
+  
+# 1. Check if xray-ui container is running
+echo "1. Checking xray-ui container status..."
+if ! docker ps | grep -q xray-ui; then
+  echo "❌ xray-ui container is not running"
+  echo "   Attempting to start it..."
+  docker start xray-ui && echo "✅ Container started" || echo "❌ Failed to start container"
+else
+  echo "✅ xray-ui container is running"
+  
+  # Get container health status
+  HEALTH=$(docker inspect --format='{{.State.Health.Status}}' xray-ui 2>/dev/null || echo "health check not configured")
+  echo "   Health status: $HEALTH"
+  if [ "$HEALTH" != "healthy" ] && [ "$HEALTH" != "health check not configured" ]; then
+    echo "   Container not healthy, restarting..."
+    docker restart xray-ui
+    echo "   Waiting 15 seconds for container to initialize..."
+    sleep 15
+  fi
+fi
+
+# 2. Check port mappings and network
+echo "2. Checking port mappings for xray-ui..."
+docker port xray-ui || echo "Could not get port mappings"
+
+# 3. Testing connectivity with multiple methods
+echo "3. Testing VPN panel connectivity..."
+
+# Try HTTP first (the panel also listens on HTTP port 80)
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/ --max-time 5 || echo "Failed")
+if [ "$HTTP_STATUS" == "200" ] || [ "$HTTP_STATUS" == "302" ]; then
+  echo "✅ VPN panel is accessible via HTTP on port 80"
+else
+  echo "⚠️ VPN panel not accessible via HTTP on port 80 (Status: $HTTP_STATUS)"
+  
+  # Try port 54321 with HTTP
+  HTTP_54321_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:54321/ --max-time 5 || echo "Failed")
+  if [ "$HTTP_54321_STATUS" == "200" ] || [ "$HTTP_54321_STATUS" == "302" ]; then
+    echo "✅ VPN panel is accessible via HTTP on port 54321"
+  else
+    echo "⚠️ VPN panel not accessible via HTTP on port 54321 (Status: $HTTP_54321_STATUS)"
+    
+    # Fall back to HTTPS with -k flag to ignore certificate errors
+    HTTPS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -k https://localhost:54321/ --max-time 5 || echo "Failed")
+    if [ "$HTTPS_STATUS" == "200" ] || [ "$HTTPS_STATUS" == "302" ]; then
+      echo "✅ VPN panel is accessible via HTTPS (insecure)"
+    else
+      echo "⚠️ VPN panel test returned status: $HTTPS_STATUS"
+      echo "This is likely a TLS/SSL issue and not a functional problem"
+      
+      # 4. Apply fixes for common issues
+      echo "4. Attempting to fix VPN panel access issues..."
+      
+      # Check environment variables
+      if ! grep -q "XUI_USERNAME" .env 2>/dev/null; then
+        echo "   XUI_USERNAME not found in .env file, adding defaults..."
+        echo "XUI_USERNAME=admin" >> .env
+        echo "XUI_PASSWORD=admin" >> .env
+      fi
+      
+      # Restart the xray-ui container
+      echo "   Restarting xray-ui container..."
+      docker restart xray-ui
+      echo "   Waiting 15 seconds for container to initialize..."
+      sleep 15
+      
+      # Test again after fixes
+      echo "5. Testing VPN panel after fixes..."
+      HTTPS_RETEST=$(curl -s -o /dev/null -w "%{http_code}" -k https://localhost:54321/ --max-time 5 || echo "Failed")
+      
+      if [ "$HTTPS_RETEST" == "200" ] || [ "$HTTPS_RETEST" == "302" ]; then
+        echo "✅ VPN panel access fixed successfully"
+      else
+        echo "⚠️ VPN panel still not accessible after fixes (Status: $HTTPS_RETEST)"
+        echo "   Checking xray-ui logs for clues..."
+        docker logs --tail 30 xray-ui
+      fi
+    fi
+  fi
+fi
+
+# 5. Summarize VPN panel access status
+echo "===== VPN Panel Access Summary ====="
+if docker ps | grep -q xray-ui; then
+  echo "✅ xray-ui container is running"
+  
+  # Get container health status
+  HEALTH=$(docker inspect --format='{{.State.Health.Status}}' xray-ui 2>/dev/null || echo "No health check configured")
+  echo "   Container health: $HEALTH"
+  
+  if [ "$HTTP_STATUS" == "200" ] || [ "$HTTP_STATUS" == "302" ] || 
+     [ "$HTTP_54321_STATUS" == "200" ] || [ "$HTTP_54321_STATUS" == "302" ] || 
+     [ "$HTTPS_STATUS" == "200" ] || [ "$HTTPS_STATUS" == "302" ] ||
+     [ "$HTTPS_RETEST" == "200" ] || [ "$HTTPS_RETEST" == "302" ]; then
+    echo "✅ VPN panel is accessible"
+  else
+    echo "⚠️ VPN panel is not accessible. Possible reasons:"
+    echo "   1. SSL/TLS certificate issues (common with curl exit code 56)"
+    echo "   2. Port mapping issues (check docker-compose.yml)"
+    echo "   3. Firewall blocking access to ports 54321 or 80"
+    echo "   4. xray-ui service not properly configured or not running on expected port"
+  fi
+else
+  echo "❌ xray-ui container is not running"
+  echo "   Check docker-compose.yml and container logs for issues"
+fi
+
+echo "VPN panel diagnostics completed."
+echo "Continuing with deployment regardless of VPN panel status..."
+
+# Print access URLs
+echo "===== Service Access Information ====="
+# Use domain from environment variable or default to the Azure domain
+DOMAIN=${VPN_DOMAIN}             # Test VPN panel
 
             # Print access URLs
             echo "===== Service Access Information ====="

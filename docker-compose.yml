@@ -21,7 +21,7 @@ services:
     networks:
       - vpn-network
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:2053/"]
+      test: [CMD, wget, -qO-, http://localhost:2053/]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -90,7 +90,7 @@ services:
         max-size: 10m
         max-file: 3
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      test: [CMD, wget, -qO-, http://localhost:3000/]
       interval: 30s
       timeout: 10s
       retries: 3

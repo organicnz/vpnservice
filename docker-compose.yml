@@ -15,6 +15,7 @@ services:
       - XRAY_VMESS_AEAD_FORCED=${XRAY_VMESS_AEAD_FORCED:-false}
       - XUI_USERNAME=${XUI_USERNAME:-admin}
       - XUI_PASSWORD=${XUI_PASSWORD:-admin}
+      - SECURITY_PANEL_ENFORCE_HTTPS=false
     volumes:
       - ./data/xray/db/:/etc/x-ui/
       - ./data/xray/cert/:/root/cert/

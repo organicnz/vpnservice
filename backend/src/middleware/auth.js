@@ -1,12 +1,10 @@
-const jwt = require('jsonwebtoken');
-const logger = require('../utils/logger');
-
 /**
- * Authentication middleware to protect routes
+ * Authentication middleware to protect routes using Supabase JWT
  */
-module.exports = function(req, res, next) {
+module.exports = async function(req, res, next) {
   // Get token from header
-  const token = req.header('x-auth-token');
+  const token = req.header('Authorization')?.replace('Bearer ', '') || 
+               req.header('x-auth-token');
   
   // Check if no token
   if (!token) {
@@ -14,20 +12,29 @@ module.exports = function(req, res, next) {
   }
   
   try {
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (!global.supabase) {
+      return res.status(503).json({ 
+        message: 'Authentication service unavailable', 
+        error: 'Supabase client not initialized' 
+      });
+    }
+    
+    // Verify token using Supabase
+    const { data: { user }, error } = await global.supabase.auth.getUser(token);
+    
+    if (error) {
+      return res.status(401).json({ message: 'Invalid token', error: error.message });
+    }
+    
+    if (!user) {
+      return res.status(401).json({ message: 'User not found or token invalid' });
+    }
     
     // Add user info to request
-    req.user = decoded;
+    req.user = user;
     next();
   } catch (error) {
-    logger.error(`Auth middleware error: ${error.message}`);
-    
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ message: 'Invalid token' });
-    } else if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ message: 'Token expired' });
-    }
+    console.error(`Auth middleware error: ${error.message}`);
     
     res.status(401).json({ message: 'Token is not valid' });
   }

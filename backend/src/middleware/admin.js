@@ -5,9 +5,17 @@ const logger = require('../utils/logger');
  * Must be used after the auth middleware
  */
 module.exports = function(req, res, next) {
-  // Check if user exists and is an admin
-  if (!req.user || req.user.role !== 'admin') {
-    logger.warn(`Non-admin user ${req.user ? req.user.id : 'unknown'} attempted to access admin route`);
+  // Check if user exists and has admin role in user metadata
+  if (!req.user) {
+    return res.status(401).json({ message: 'Authentication required' });
+  }
+  
+  // Check admin role in user metadata
+  const isAdmin = req.user.app_metadata?.role === 'admin' || 
+                  req.user.user_metadata?.role === 'admin';
+                  
+  if (!isAdmin) {
+    console.warn(`Non-admin user ${req.user.id} attempted to access admin route`);
     return res.status(403).json({ message: 'Access denied. Admin only.' });
   }
   

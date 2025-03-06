@@ -263,8 +263,14 @@ jobs:
               echo "VPN_DOMAIN=${{ secrets.VPN_DOMAIN }}" >> .env
               echo "VPN_ADMIN_EMAIL=${{ secrets.VPN_ADMIN_EMAIL }}" >> .env
               echo "NODE_ENV=production" >> .env
+              echo "SECURITY_PANEL_ENFORCE_HTTPS=false" >> .env
             fi
 
+            # Ensure SSL fix is applied even if .env already exists
+            if [ -f ".env" ] && ! grep -q "SECURITY_PANEL_ENFORCE_HTTPS" .env; then
+              echo "Adding SSL fix configuration to .env file..."
+              echo "SECURITY_PANEL_ENFORCE_HTTPS=false" >> .env
+            fi
             # Pre-check for running containers to identify potential issues
             echo "Checking currently running containers..."
             docker ps -a
@@ -596,8 +602,8 @@ jobs:
             echo "===== Service Access Information ====="
             # Use domain from environment variable or default to the Azure domain
             DOMAIN=${VPN_DOMAIN:-localhost}
-            echo "VPN Admin Panel: https://$DOMAIN:54321"
-            echo "Backend API: https://$DOMAIN:3000"
+            echo "VPN Admin Panel: http://$DOMAIN:54321"
+            echo "Backend API: http://$DOMAIN:3000"
             echo "Admin Dashboard: https://$DOMAIN:8080"
             echo "Admin Email: ${VPN_ADMIN_EMAIL:-admin@example.com}"
             echo "Telegram Bot: @CyberDolphinBot"

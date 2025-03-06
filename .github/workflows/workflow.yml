@@ -391,7 +391,7 @@ jobs:
               echo "Installing jq for JSON parsing..."
               sudo apt-get update && sudo apt-get install -y jq
             # Use integrated test script if available
-            if [ -f "scripts/run-all-tests.sh" ]; then
+            if [ -d "scripts" ] && [ -f "scripts/run-all-tests.sh" ]; then
               echo "===== Running Comprehensive Test Suite ====="
               chmod +x scripts/run-all-tests.sh
               ./scripts/run-all-tests.sh || echo "⚠️ Some tests failed but deployment will continue"

@@ -206,7 +206,7 @@ jobs:
         id: deploy
         env:
           SSH_USER: organic
-          SERVER_IP: vpn-service.germanywestcentral.cloudapp.azure.com
+          SERVER_IP: ${{ secrets.VPN_DOMAIN }}
         run: |
           ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
             set -e  # Exit immediately if a command exits with a non-zero status
@@ -238,7 +238,7 @@ jobs:
             
             if [ ! -d "vpnservice" ]; then
               echo "Cloning repository..."
-              git clone https://github.com/organicnz/vpnservice.git
+              git clone ${{ github.server_url }}/${{ github.repository }}.git
               cd vpnservice
             else
               cd vpnservice
@@ -258,10 +258,10 @@ jobs:
               echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> .env
               echo "XUI_USERNAME=${{ secrets.XUI_USERNAME }}" >> .env
               echo "XUI_PASSWORD=${{ secrets.XUI_PASSWORD }}" >> .env
-              echo "TIMEZONE=${{ secrets.TIMEZONE || 'Europe/Moscow' }}" >> .env
-              echo "XRAY_VMESS_AEAD_FORCED=${{ secrets.XRAY_VMESS_AEAD_FORCED || 'false' }}" >> .env
-              echo "VPN_DOMAIN=${{ secrets.VPN_DOMAIN || 'vpn-service.germanywestcentral.cloudapp.azure.com' }}" >> .env
-              echo "VPN_ADMIN_EMAIL=${{ secrets.VPN_ADMIN_EMAIL || 'tamerlanium@gmail.com' }}" >> .env
+              echo "TIMEZONE=${{ secrets.TIMEZONE }}" >> .env
+              echo "XRAY_VMESS_AEAD_FORCED=${{ secrets.XRAY_VMESS_AEAD_FORCED }}" >> .env
+              echo "VPN_DOMAIN=${{ secrets.VPN_DOMAIN }}" >> .env
+              echo "VPN_ADMIN_EMAIL=${{ secrets.VPN_ADMIN_EMAIL }}" >> .env
               echo "NODE_ENV=production" >> .env
             fi
 
@@ -484,18 +484,18 @@ jobs:
 
             # Download and run our comprehensive VPN panel test script
             echo "===== Running Detailed VPN Panel Test ====="
-            curl -s https://raw.githubusercontent.com/organicnz/vpnservice/main/test-vpn-panel.sh -o test-vpn-panel.sh
+            # Use existing test-vpn-panel.sh from repo
             chmod +x test-vpn-panel.sh
             ./test-vpn-panel.sh || true  # Run but don't fail deployment if it doesn't work
 
             # Print access URLs
             echo "===== Service Access Information ====="
             # Use domain from environment variable or default to the Azure domain
-            DOMAIN=${VPN_DOMAIN:-vpn-service.germanywestcentral.cloudapp.azure.com}
+            DOMAIN=${VPN_DOMAIN}
             echo "VPN Admin Panel: https://$DOMAIN:54321"
             echo "Backend API: https://$DOMAIN:3000"
             echo "Admin Dashboard: https://$DOMAIN:8080"
-            echo "Admin Email: ${VPN_ADMIN_EMAIL:-tamerlanium@gmail.com}"
+            echo "Admin Email: ${VPN_ADMIN_EMAIL}"
             echo "Telegram Bot: @CyberDolphinBot"
             
             echo "===== Deployment Complete ====="

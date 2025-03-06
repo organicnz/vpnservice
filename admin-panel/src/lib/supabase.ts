@@ -130,5 +130,33 @@ export async function getCurrentSession(): Promise<AuthSession | null> {
   }
 }
 
+/**
+ * Request a password reset email
+ * @param email User email
+ * @param redirectTo URL to redirect to after password reset
+ * @returns Success status or error
+ */
+export async function requestPasswordReset(email: string, redirectTo?: string): Promise<{ success: boolean; error: Error | null }> {
+  try {
+    const supabase = getSupabaseClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+    
+    if (error) {
+      console.error('Password reset request error:', error.message);
+      return { success: false, error };
+    }
+    
+    return { success: true, error: null };
+  } catch (err) {
+    console.error('Unexpected error during password reset request:', err);
+    return { 
+      success: false, 
+      error: err instanceof Error ? err : new Error('Unknown error during password reset request') 
+    };
+  }
+}
+
 // Export the default client for direct use
 export default getSupabaseClient(); 

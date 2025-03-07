@@ -16,7 +16,7 @@ on:
           - build
           - deploy
           - fix-admin
-          - direct-admin-fix
+          - integrated-admin-fix
           - rebuild-admin
           - rebuild-backend
           - rebuild-xui
@@ -1025,10 +1025,10 @@ jobs:
           echo "docker logs ${{ steps.component.outputs.container_name }}" >> $GITHUB_STEP_SUMMARY
           echo "```" >> $GITHUB_STEP_SUMMARY 
 
-  # Direct fix for admin panel using the specialized script
-  direct-admin-fix:
+  # Integrated admin panel fix directly in workflow (no separate script)
+  integrated-admin-fix:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action_type == 'direct-admin-fix'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action_type == 'integrated-admin-fix'
     timeout-minutes: 15
     
     steps:
@@ -1044,17 +1044,8 @@ jobs:
           known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           if_key_exists: fail
       
-      - name: Upload fix script
-        env:
-          SSH_USER: organic
-          SERVER_IP: ${{ secrets.VPN_DOMAIN }}
-        run: |
-          echo "Uploading specialized fix script to server..."
-          chmod +x fix-nextjs-admin.sh
-          scp -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new fix-nextjs-admin.sh $SSH_USER@$SERVER_IP:~/fix-nextjs-admin.sh
-      
-      - name: Execute specialized admin panel fix
-        id: direct_fix
+      - name: Execute Integrated Admin Panel Fix
+        id: integrated_fix
         env:
           SSH_USER: organic
           SERVER_IP: ${{ secrets.VPN_DOMAIN }}
@@ -1063,50 +1054,245 @@ jobs:
         run: |
           set -o pipefail
           
-          echo "Executing specialized admin panel fix remotely..."
-          OUTPUT=$(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
-            cd ~
-            chmod +x fix-nextjs-admin.sh
-            SUPABASE_URL="${SUPABASE_URL}" SUPABASE_KEY="${SUPABASE_KEY}" ./fix-nextjs-admin.sh
+          echo "::group::Establishing SSH connection"
+          echo "Connecting to $SERVER_IP as $SSH_USER..."
+          echo "::endgroup::"
+          
+          echo "Executing Integrated Admin Panel Fix remotely..."
+          RESULT=$(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
+            cd ~/dev/vpnservice
+            
+            echo "===== Starting Integrated Admin Panel Fix ====="
+            echo "This fix is directly integrated into the workflow"
+            
+            # Get environment variables from GitHub Actions
+            SUPABASE_URL="${SUPABASE_URL}"
+            SUPABASE_KEY="${SUPABASE_KEY}"
+            API_URL=${API_URL:-"http://backend:3000"}
+            
+            echo "Using SUPABASE_URL: ${SUPABASE_URL}"
+            echo "Using SUPABASE_KEY: ${SUPABASE_KEY:0:10}..." # Only show first 10 chars for security
+            echo "Using API_URL: ${API_URL}"
+            
+            # 1. Stop and remove the admin container
+            echo "Stopping and removing existing admin container..."
+            docker stop vpn-admin 2>/dev/null || echo "No container to stop"
+            docker rm vpn-admin 2>/dev/null || echo "No container to remove"
+            
+            # 2. Remove existing admin panel image to force a clean rebuild
+            echo "Removing admin panel Docker image (if exists)..."
+            docker rmi vpnservice-admin 2>/dev/null || docker rmi vpn-admin-fixed 2>/dev/null || echo "No image to remove"
+            
+            # 3. Create explicit Next.js environment files in the admin-panel directory
+            echo "Creating Next.js environment files..."
+            mkdir -p admin-panel
+            cat > admin-panel/.env << EOF
+            # Next.js runtime environment variables
+            NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
+            NEXT_PUBLIC_API_URL=${API_URL}
+            EOF
+            
+            # Create all variations of Next.js environment files
+            cp admin-panel/.env admin-panel/.env.local
+            cp admin-panel/.env admin-panel/.env.production
+            cp admin-panel/.env admin-panel/.env.production.local
+            
+            echo "Created environment files in admin-panel directory"
+            
+            # 4. Create a custom Dockerfile that ensures proper Next.js environment variable handling
+            echo "Creating optimized Next.js Dockerfile..."
+            cat > admin-panel/Dockerfile.fixed << EOF
+            FROM node:20-alpine AS builder
+            
+            WORKDIR /app
+            
+            # Set build arguments and environment variables explicitly
+            ARG NEXT_PUBLIC_SUPABASE_URL="${SUPABASE_URL}"
+            ARG NEXT_PUBLIC_SUPABASE_ANON_KEY="${SUPABASE_KEY}"
+            ARG NEXT_PUBLIC_API_URL="${API_URL}"
+            
+            ENV NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}
+            ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+            ENV NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}
+            
+            # Copy package files first for better cache utilization
+            COPY package.json package-lock.json* ./
+            
+            # Install dependencies
+            RUN npm ci || npm install
+            
+            # Copy application code
+            COPY . .
+            
+            # Debug: Print environment variables to verify they're set at build time
+            RUN echo "Building with NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}"
+            RUN echo "Building with NEXT_PUBLIC_SUPABASE_ANON_KEY=\${NEXT_PUBLIC_SUPABASE_ANON_KEY:0:10}..."
+            RUN echo "Building with NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}"
+            
+            # Create env files explicitly at build time
+            RUN echo "NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}" > .env
+            RUN echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=\${NEXT_PUBLIC_SUPABASE_ANON_KEY}" >> .env
+            RUN echo "NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}" >> .env
+            RUN cp .env .env.local
+            RUN cp .env .env.production
+            RUN cp .env .env.production.local
+            
+            # Force Next.js to use production mode
+            ENV NODE_ENV=production
+            
+            # Build the app with the environment variables
+            RUN npm run build
+            
+            # Production image
+            FROM node:20-alpine AS runner
+            
+            WORKDIR /app
+            
+            # Set runtime environment variables
+            ENV NODE_ENV=production
+            ENV NEXT_PUBLIC_SUPABASE_URL="${SUPABASE_URL}"
+            ENV NEXT_PUBLIC_SUPABASE_ANON_KEY="${SUPABASE_KEY}"
+            ENV NEXT_PUBLIC_API_URL="${API_URL}"
+            
+            # Copy necessary files from builder stage
+            COPY --from=builder /app/next.config.js ./
+            COPY --from=builder /app/public ./public
+            COPY --from=builder /app/.next ./.next
+            COPY --from=builder /app/node_modules ./node_modules
+            COPY --from=builder /app/package.json ./package.json
+            COPY --from=builder /app/.env* ./
+            
+            # Expose port
+            EXPOSE 3000
+            
+            # Add health check
+            HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \\
+              CMD wget -qO- http://localhost:3000 || exit 1
+            
+            # Start the application
+            CMD ["npm", "start"]
+            EOF
+            
+            echo "Created custom Dockerfile at admin-panel/Dockerfile.fixed"
+            
+            # 5. Build the admin panel with the specialized Dockerfile
+            echo "Building admin panel with specialized Dockerfile..."
+            docker build -t vpn-admin-fixed:latest -f admin-panel/Dockerfile.fixed ./admin-panel || {
+              echo "ERROR: Failed to build admin panel image"
+              exit 1
+            }
+            
+            # 6. Determine the network to use
+            echo "Finding network for container..."
+            NETWORK_NAME=$(docker network ls | grep vpn | head -1 | awk '{print $2}')
+            if [ -z "$NETWORK_NAME" ]; then
+              NETWORK_NAME="vpn_vpn-network"
+              echo "No existing network found, using default: $NETWORK_NAME"
+              docker network create $NETWORK_NAME || echo "Network creation failed, it might already exist"
+            else
+              echo "Using existing network: $NETWORK_NAME"
+            fi
+            
+            # 7. Run the container with environment variables explicitly set
+            echo "Starting admin panel container..."
+            docker run -d \
+              --name vpn-admin \
+              --network $NETWORK_NAME \
+              -p 8080:3000 \
+              -e NEXT_PUBLIC_SUPABASE_URL="${SUPABASE_URL}" \
+              -e NEXT_PUBLIC_SUPABASE_ANON_KEY="${SUPABASE_KEY}" \
+              -e NEXT_PUBLIC_API_URL="${API_URL}" \
+              -e NODE_ENV="production" \
+              --restart unless-stopped \
+              vpn-admin-fixed:latest || {
+                echo "ERROR: Failed to start admin panel container"
+                exit 1
+              }
+            
+            echo "Admin panel container started, waiting for initialization..."
+            sleep 10
+            
+            # 8. Verify container status
+            echo "Checking container status..."
+            docker ps | grep vpn-admin || {
+              echo "WARNING: Container not found in running containers!"
+              exit 1
+            }
+            
+            # 9. View logs to check for errors
+            echo "Container logs:"
+            docker logs vpn-admin | tail -n 20
+            
+            # 10. Test accessibility
+            echo "Testing admin panel accessibility..."
+            for i in {1..5}; do
+              echo "Attempt $i of 5..."
+              if curl -s --head http://localhost:8080 | grep -q "200 OK\|302 Found"; then
+                echo "✅ Admin panel is accessible!"
+                ADMIN_ACCESSIBLE=true
+                break
+              else
+                echo "⚠️ Admin panel not yet accessible, waiting 5 seconds..."
+                sleep 5
+              fi
+            done
+            
+            if [ "$ADMIN_ACCESSIBLE" != "true" ]; then
+              echo "❌ Admin panel still shows 'Service Temporarily Unavailable'"
+              echo "Please check the application logs for specific errors:"
+              echo "  docker logs vpn-admin"
+              echo ""
+              echo "You can manually check the status in a few minutes at:"
+              echo "  http://localhost:8080"
+              exit 1
+            else
+              echo ""
+              echo "✅ Successfully rebuilt the admin panel container!"
+              echo "The admin panel should now be accessible at:"
+              echo "  http://localhost:8080"
+            fi
+            
+            echo "===== Admin Panel Fix Complete ====="
+            exit 0
           ENDSSH
           )
           
-          echo "$OUTPUT"
+          echo "$RESULT"
           
-          # Determine if fix was successful
-          if echo "$OUTPUT" | grep -q "Admin panel is accessible"; then
-            echo "fix_successful=true" >> $GITHUB_OUTPUT
+          # Check if the fix was successful
+          if [[ $? -eq 0 ]]; then
+            echo "integrated_fix_successful=true" >> $GITHUB_OUTPUT
           else
-            echo "fix_successful=false" >> $GITHUB_OUTPUT
+            echo "integrated_fix_successful=false" >> $GITHUB_OUTPUT
           fi
       
       - name: Fix Report
         run: |
-          echo "## Admin Panel Fix Attempt" >> $GITHUB_STEP_SUMMARY
+          echo "## Next.js Admin Panel Fix Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [[ "${{ steps.direct_fix.outputs.fix_successful }}" == "true" ]]; then
+          if [[ "${{ steps.integrated_fix.outputs.integrated_fix_successful }}" == "true" ]]; then
             echo "### ✅ Admin Panel Fix Successful" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The Next.js admin panel has been successfully rebuilt and is now accessible." >> $GITHUB_STEP_SUMMARY
+            echo "The admin panel has been successfully rebuilt with proper environment variables and is now accessible." >> $GITHUB_STEP_SUMMARY
           else
-            echo "### ⚠️ Admin Panel Fix Attempted" >> $GITHUB_STEP_SUMMARY
+            echo "### ⚠️ Admin Panel Fix Failed" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The fix script completed, but could not confirm if the admin panel is accessible." >> $GITHUB_STEP_SUMMARY
-            echo "Please check the logs on the server for more information, and verify manually." >> $GITHUB_STEP_SUMMARY
+            echo "The admin panel fix attempt failed. Please check the job logs for details." >> $GITHUB_STEP_SUMMARY
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### Specialized Next.js Fix Details" >> $GITHUB_STEP_SUMMARY
+          echo "### Fix Details" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The fix script applied the following optimizations:" >> $GITHUB_STEP_SUMMARY
+          echo "The following actions were performed:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. Completely rebuilt the admin panel with hard-coded environment variables" >> $GITHUB_STEP_SUMMARY
-          echo "2. Created explicit Next.js environment files in all required locations" >> $GITHUB_STEP_SUMMARY
-          echo "3. Used a specialized Dockerfile with proper Next.js build and runtime configuration" >> $GITHUB_STEP_SUMMARY
-          echo "4. Ensured environment variables are available during both build and runtime" >> $GITHUB_STEP_SUMMARY
-          echo "5. Applied Next.js-specific optimizations to prevent the 'Service Temporarily Unavailable' error" >> $GITHUB_STEP_SUMMARY
+          echo "1. **Container Reset**: Stopped and removed existing admin panel container" >> $GITHUB_STEP_SUMMARY
+          echo "2. **Environment Files**: Created Next.js environment files with correct variables" >> $GITHUB_STEP_SUMMARY
+          echo "3. **Optimized Dockerfile**: Created a Next.js-optimized Dockerfile with proper variable handling" >> $GITHUB_STEP_SUMMARY
+          echo "4. **Image Build**: Built a new container image with hard-coded environment variables" >> $GITHUB_STEP_SUMMARY
+          echo "5. **Container Launch**: Started a new container with proper runtime configuration" >> $GITHUB_STEP_SUMMARY
+          echo "6. **Access Verification**: Checked that the admin panel is accessible" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The admin panel should now be accessible at:" >> $GITHUB_STEP_SUMMARY
-          echo "http://${{ secrets.VPN_DOMAIN }}:8080" >> $GITHUB_STEP_SUMMARY
+          echo "The admin panel should now be accessible at: http://${{ secrets.VPN_DOMAIN }}:8080" >> $GITHUB_STEP_SUMMARY
 

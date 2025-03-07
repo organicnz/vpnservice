@@ -1,0 +1,45 @@
+name: Fix Admin Panel
+
+on:
+  workflow_dispatch:
+    inputs: {}
+
+permissions:
+  contents: read
+
+jobs:
+  fix-admin-panel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up SSH
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          if_key_exists: fail
+      
+      - name: Execute Admin Panel Fix
+        env:
+          SSH_USER: organic
+          SERVER_IP: ${{ secrets.VPN_DOMAIN }}
+        run: |
+          echo "Executing Admin Panel Fix remotely..."
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
+            cd ~/dev/vpnservice
+            
+            echo "Pulling latest changes from repository..."
+            git pull origin main
+            
+            echo "Making admin panel fix script executable..."
+            chmod +x admin-panel-fix.sh
+            
+            echo "Running admin panel fix script..."
+            ./admin-panel-fix.sh
+          ENDSSH 

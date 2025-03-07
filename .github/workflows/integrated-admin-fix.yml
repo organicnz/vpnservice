@@ -1,0 +1,195 @@
+name: Integrated Admin Panel Fix
+
+on:
+  workflow_dispatch:
+    inputs: {}
+
+permissions:
+  contents: read
+
+jobs:
+  fix-admin-panel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up SSH
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          if_key_exists: fail
+      
+      - name: Execute Integrated Admin Panel Fix
+        env:
+          SSH_USER: organic
+          SERVER_IP: ${{ secrets.VPN_DOMAIN }}
+        run: |
+          echo "Executing integrated admin panel fix remotely..."
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
+            cd ~/dev/vpnservice
+            
+            echo "===== Starting Integrated Admin Panel Fix ====="
+            
+            # 1. Backup current environment
+            echo "Creating backup of current environment..."
+            cp .env .env.backup.$(date +%Y%m%d%H%M%S)
+            docker-compose config > docker-compose-config.backup.$(date +%Y%m%d%H%M%S)
+            
+            # 2. Ensure we have the latest code
+            echo "Pulling latest code..."
+            git pull origin main
+            
+            # 3. Stop and remove all containers to ensure clean state
+            echo "Stopping all containers..."
+            docker-compose down
+            
+            # 4. Display current Supabase configuration
+            echo "Current Supabase configuration:"
+            grep "SUPABASE" .env || echo "No Supabase variables found in .env"
+            
+            # 5. Create a completely new .env file with all required variables
+            echo "Creating new .env file with all required variables..."
+            cat > .env.new << EOF
+            # Basic configuration
+            NODE_ENV=production
+            TIMEZONE=UTC
+            SECURITY_PANEL_ENFORCE_HTTPS=false
+            
+            # Supabase configuration
+            SUPABASE_URL=$(grep -o "SUPABASE_URL=.*" .env | cut -d= -f2 || echo "https://xnigsihqhdydfrgrujrd.supabase.co")
+            SUPABASE_KEY=$(grep -o "SUPABASE_KEY=.*" .env | cut -d= -f2 || echo "your-supabase-key")
+            SUPABASE_SERVICE_ROLE_KEY=$(grep -o "SUPABASE_SERVICE_ROLE_KEY=.*" .env | cut -d= -f2 || echo "your-service-role-key")
+            
+            # Next.js admin panel configuration - explicit values
+            NEXT_PUBLIC_SUPABASE_URL=$(grep -o "SUPABASE_URL=.*" .env | cut -d= -f2 || echo "https://xnigsihqhdydfrgrujrd.supabase.co")
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=$(grep -o "SUPABASE_KEY=.*" .env | cut -d= -f2 || echo "your-supabase-key")
+            NEXT_PUBLIC_API_URL=http://backend:3000
+            
+            # Telegram bot
+            TELEGRAM_BOT_TOKEN=$(grep -o "TELEGRAM_BOT_TOKEN=.*" .env | cut -d= -f2 || echo "your-telegram-token")
+            
+            # VPN configuration
+            VPN_DOMAIN=$(grep -o "VPN_DOMAIN=.*" .env | cut -d= -f2 || echo "vpn-service.germanywestcentral.cloudapp.azure.com")
+            VPN_ADMIN_EMAIL=$(grep -o "VPN_ADMIN_EMAIL=.*" .env | cut -d= -f2 || echo "admin@example.com")
+            XUI_USERNAME=$(grep -o "XUI_USERNAME=.*" .env | cut -d= -f2 || echo "admin")
+            XUI_PASSWORD=$(grep -o "XUI_PASSWORD=.*" .env | cut -d= -f2 || echo "admin")
+            XRAY_VMESS_AEAD_FORCED=$(grep -o "XRAY_VMESS_AEAD_FORCED=.*" .env | cut -d= -f2 || echo "false")
+            EOF
+            
+            # 6. Replace the existing .env file
+            echo "Replacing .env file..."
+            mv .env.new .env
+            chmod 600 .env
+            
+            # 7. Create .env file specifically for the admin panel
+            echo "Creating .env files for admin panel..."
+            mkdir -p admin-panel
+            cat > admin-panel/.env.local << EOF
+            NEXT_PUBLIC_SUPABASE_URL=$(grep -o "SUPABASE_URL=.*" .env | cut -d= -f2)
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=$(grep -o "SUPABASE_KEY=.*" .env | cut -d= -f2)
+            NEXT_PUBLIC_API_URL=http://backend:3000
+            EOF
+            
+            # 8. Create a direct fix volume with the environment variables
+            echo "Creating environment fix directory..."
+            rm -rf .admin-panel-fix
+            mkdir -p .admin-panel-fix
+            cat > .admin-panel-fix/.env.local << EOF
+            NEXT_PUBLIC_SUPABASE_URL=$(grep -o "SUPABASE_URL=.*" .env | cut -d= -f2)
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=$(grep -o "SUPABASE_KEY=.*" .env | cut -d= -f2)
+            NEXT_PUBLIC_API_URL=http://backend:3000
+            EOF
+            
+            # 9. Also create a .env.production.local file for production mode
+            cat > .admin-panel-fix/.env.production.local << EOF
+            NEXT_PUBLIC_SUPABASE_URL=$(grep -o "SUPABASE_URL=.*" .env | cut -d= -f2)
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=$(grep -o "SUPABASE_KEY=.*" .env | cut -d= -f2)
+            NEXT_PUBLIC_API_URL=http://backend:3000
+            EOF
+            
+            # 10. Modify docker-compose.yml to add the direct volume mounting
+            echo "Adding environment fix volume to docker-compose..."
+            cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d%H%M%S)
+            VOLUME_LINE_1="      - ./.admin-panel-fix/.env.local:/app/.env.local"
+            VOLUME_LINE_2="      - ./.admin-panel-fix/.env.production.local:/app/.env.production.local"
+            
+            if ! grep -q ".admin-panel-fix/.env.local:/app/.env.local" docker-compose.yml; then
+              # Find the admin service section
+              ADMIN_LINE=$(grep -n "container_name: vpn-admin" docker-compose.yml | cut -d: -f1)
+              if [ -n "$ADMIN_LINE" ]; then
+                # Find the volumes section or add it
+                VOLUMES_LINE=$(tail -n +$ADMIN_LINE docker-compose.yml | grep -n "volumes:" | head -1 | cut -d: -f1)
+                if [ -n "$VOLUMES_LINE" ]; then
+                  VOLUMES_LINE=$((ADMIN_LINE + VOLUMES_LINE - 1))
+                  # Add our volumes to the volumes section
+                  sed -i "${VOLUMES_LINE}a\\${VOLUME_LINE_2}" docker-compose.yml
+                  sed -i "${VOLUMES_LINE}a\\${VOLUME_LINE_1}" docker-compose.yml
+                else
+                  # Add a new volumes section
+                  VOLUMES_INSERT="    volumes:\\n${VOLUME_LINE_1}\\n${VOLUME_LINE_2}"
+                  sed -i "/container_name: vpn-admin/a\\${VOLUMES_INSERT}" docker-compose.yml
+                fi
+              fi
+            fi
+            
+            # 11. Rebuild the admin container completely
+            echo "Rebuilding the admin panel container..."
+            docker-compose build --no-cache admin
+            
+            # 12. Start all containers
+            echo "Starting all containers..."
+            docker-compose up -d
+            
+            # 13. Wait for containers to start
+            echo "Waiting for containers to initialize (45 seconds)..."
+            sleep 45
+            
+            # 14. Check container status
+            echo "Checking container status..."
+            docker ps
+            docker logs vpn-admin | tail -n 50
+            
+            # 15. Test admin panel accessibility
+            echo "Testing admin panel accessibility..."
+            for i in {1..5}; do
+              echo "Attempt $i..."
+              ADMIN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 || echo "Failed")
+              if [ "$ADMIN_STATUS" = "200" ] || [ "$ADMIN_STATUS" = "302" ]; then
+                echo "✅ Admin panel is accessible (HTTP Status: $ADMIN_STATUS)"
+                break
+              else
+                echo "⚠️ Admin panel returned HTTP Status: $ADMIN_STATUS"
+                if [ $i -lt 5 ]; then
+                  echo "Waiting 10 seconds before trying again..."
+                  sleep 10
+                fi
+              fi
+            done
+            
+            # 16. Check final logs
+            echo "Final admin panel logs:"
+            docker logs vpn-admin | tail -n 30
+            
+            echo "===== Admin Panel Fix Complete ====="
+            echo ""
+            echo "You should now be able to access the admin panel at:"
+            echo "http://vpn-service.germanywestcentral.cloudapp.azure.com:8080"
+          ENDSSH
+            
+      - name: Verification Summary
+        run: |
+          echo "===== Admin Panel Fix Summary ====="
+          echo "The integrated fix workflow has completed."
+          echo ""
+          echo "Admin Panel should now be accessible at:"
+          echo "http://vpn-service.germanywestcentral.cloudapp.azure.com:8080"
+          echo ""
+          echo "To verify the fix, try accessing the admin panel."
+          echo "If issues persist, check the logs on the server with:"
+          echo "  docker logs vpn-admin" 

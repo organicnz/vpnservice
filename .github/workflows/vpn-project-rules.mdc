@@ -249,8 +249,8 @@ Follow the conventional commits specification:
 - Use automated a11y testing tools
 - Perform manual testing with screen readers
 
-### 
-Let me check if there are any remaining scripts in the repository that need to be integrated into the workflow
+### Additional Script
+- Check if there are any remaining scripts in the repository that need to be integrated into the workflow
 
 ---
 

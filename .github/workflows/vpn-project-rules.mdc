@@ -1,5 +1,5 @@
 ---
-description: 4
+description: ###Don't create multiple wordflows and always consolidate them into one workflow if there are many
 globs: 
 alwaysApply: false
 ---
@@ -18,6 +18,9 @@ alwaysApply: false
 - [Testing Strategy](mdc:#testing-strategy)
 
 ## General Guidelines
+
+### Wordflows
+- Don't create multiple wordflows and always consolidate them into one workflow if there are many
 
 ### Core Principles
 - **Simplicity First**: Prefer simple, maintainable solutions over complex ones
@@ -252,6 +255,8 @@ Follow the conventional commits specification:
 
 ### Additional Script
 - Check if there are any remaining scripts in the repository that need to be integrated into the workflow
+
+
 
 ---
 

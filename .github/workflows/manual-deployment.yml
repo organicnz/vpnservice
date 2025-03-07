@@ -4,17 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: "Target environment"
+        description: 'Target environment'
         required: true
-        default: "production"
+        default: 'production'
         type: choice
         options:
           - production
           - development
       rebuild_type:
-        description: "Type of rebuild"
+        description: 'Type of rebuild'
         required: true
-        default: "admin-only"
+        default: 'admin-only'
         type: choice
         options:
           - full
@@ -34,7 +34,7 @@ jobs:
           fetch-depth: 0  # Fetch all history for proper versioning
 
       - name: Set up SSH
-        if: inputs.environment == "production"
+        if: inputs.environment == 'production'
         uses: shimataro/ssh-key-action@v2
         with:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -42,20 +42,50 @@ jobs:
           if_key_exists: fail
 
       - name: Deploy and Fix Admin Panel
-        if: inputs.environment == "production" && (inputs.rebuild_type == "admin-only" || inputs.rebuild_type == "full")
+        if: inputs.environment == 'production' && (inputs.rebuild_type == 'admin-only' || inputs.rebuild_type == 'full')
         env:
           SSH_USER: organic
           SERVER_IP: ${{ secrets.VPN_DOMAIN }}
         run: |
-          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP "cd ~/dev/vpnservice && \
-            docker-compose stop admin && \
-            echo \"NEXT_PUBLIC_API_URL=http://backend:3000\" >> .env && \
-            echo \"NEXT_PUBLIC_SUPABASE_URL=\\${SUPABASE_URL}\" >> .env && \
-            echo \"NEXT_PUBLIC_SUPABASE_ANON_KEY=\\${SUPABASE_KEY}\" >> .env && \
-            docker-compose build --no-cache admin && \
-            docker-compose up -d admin && \
-            sleep 10 && \
-            docker logs vpn-admin | tail -n 20"
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
+            cd ~/dev/vpnservice
+            
+            # Save original .env file
+            cp .env .env.backup
+
+            # Update environment variables for the admin panel
+            # Ensure all NEXT_PUBLIC vars are correctly set
+            grep -v "NEXT_PUBLIC" .env > .env.new
+            cat >> .env.new << EOF
+            NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
+            NEXT_PUBLIC_API_URL=http://backend:3000
+            EOF
+            mv .env.new .env
+            
+            # Show the updated environment variables
+            echo "Updated environment variables:"
+            grep "NEXT_PUBLIC" .env
+            
+            echo "Stopping and removing admin panel container..."
+            docker-compose stop admin
+            docker-compose rm -f admin
+            
+            echo "Rebuilding admin panel container from scratch..."
+            docker-compose build --no-cache admin
+            
+            echo "Starting admin panel container..."
+            docker-compose up -d admin
+            
+            echo "Waiting for container to initialize..."
+            sleep 20
+            
+            echo "Admin panel logs:"
+            docker logs vpn-admin
+            
+            echo "Testing admin panel accessibility..."
+            curl -s -I http://localhost:8080 || echo "Failed to connect to admin panel"
+          ENDSSH
 
   post-deployment:
     needs: deploy

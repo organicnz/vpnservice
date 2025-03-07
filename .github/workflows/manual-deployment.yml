@@ -14,18 +14,19 @@ on:
       rebuild_type:
         description: 'Type of rebuild'
         required: true
-        default: 'admin-only'
+        default: 'admin-panel-fix'
         type: choice
         options:
           - full
           - backend-only
           - admin-only
+          - admin-panel-fix
           - xui-only
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     
     steps:
       - name: Checkout code
@@ -40,6 +41,20 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           if_key_exists: fail
+
+      - name: Execute Advanced Fix Script for Admin Panel
+        if: inputs.environment == 'production' && inputs.rebuild_type == 'admin-panel-fix'
+        env:
+          SSH_USER: organic
+          SERVER_IP: ${{ secrets.VPN_DOMAIN }}
+        run: |
+          echo "Executing Advanced Admin Panel Fix remotely..."
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
+            cd ~/dev/vpnservice
+            git pull
+            chmod +x fix-admin-panel-advanced.sh
+            ./fix-admin-panel-advanced.sh
+          ENDSSH
 
       - name: Deploy and Fix Admin Panel
         if: inputs.environment == 'production' && (inputs.rebuild_type == 'admin-only' || inputs.rebuild_type == 'full')

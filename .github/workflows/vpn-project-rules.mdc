@@ -1,5 +1,5 @@
 ---
-description: 
+description: 4
 globs: 
 alwaysApply: false
 ---
@@ -97,6 +97,7 @@ backend/
 ## Next.js Best Practices
 
 ### Routing & Data Fetching
+- Use Next.js v14.x or later
 - Use the App Router for all new development
 - Leverage React Server Components for server-rendered content
 - Use Server Actions for form submissions when possible

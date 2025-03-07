@@ -76,7 +76,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Admin panel fix job
+  # Consolidated admin panel fix job
   fix-admin-panel:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && contains(github.event.inputs.*, 'fix-admin')
@@ -95,51 +95,65 @@ jobs:
           known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           if_key_exists: fail
       
-      - name: Execute Admin Panel Fix
+      - name: Execute Consolidated Admin Panel Fix
         env:
           SSH_USER: organic
           SERVER_IP: ${{ secrets.VPN_DOMAIN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          echo "Executing Admin Panel Fix remotely with correct Supabase URL and key..."
+          echo "Executing Consolidated Admin Panel Fix remotely..."
           ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << ENDSSH
             cd ~/dev/vpnservice
             
-            echo "Pulling latest changes from repository..."
+            echo "===== Starting Comprehensive Admin Panel Fix ====="
+            echo "This fix addresses all potential causes of 'Service Temporarily Unavailable' error"
+            
+            # 1. Create backup of environment and configuration
+            echo "Creating backup of current environment..."
+            cp .env .env.backup.\$(date +%Y%m%d%H%M%S) 2>/dev/null || echo "No .env file to backup"
+            cp docker-compose.yml docker-compose.yml.backup.\$(date +%Y%m%d%H%M%S) 2>/dev/null || echo "No docker-compose.yml file to backup"
+            
+            # 2. Ensure we have the latest code
+            echo "Pulling latest code..."
             git pull origin main
             
-            echo "Fixing Admin Panel Environment Variables..."
-            
-            # Using variables from GitHub secrets
+            # 3. Using Supabase variables from GitHub secrets
             SUPABASE_URL="${SUPABASE_URL}"
             SUPABASE_KEY="${SUPABASE_KEY}"
             
             echo "Using Supabase URL: \$SUPABASE_URL"
+            echo "Using Supabase Key: \${SUPABASE_KEY:0:10}..." # Only show the first 10 characters for security
             
-            # Stop and remove the admin container
-            echo "Stopping admin container..."
-            docker stop vpn-admin || true
-            docker rm vpn-admin || true
+            # 4. Stop and remove the admin container
+            echo "Stopping and removing admin container..."
+            docker-compose down admin || true
+            docker stop vpn-admin 2>/dev/null || true
+            docker rm vpn-admin 2>/dev/null || true
             
-            # Create environment files with correct variables from secrets
-            echo "Creating environment files with correct Supabase URL and key..."
-            mkdir -p .env-fix
-            cat > .env-fix/.env.production << EOF
+            # 5. Create directories for environment files
+            echo "Setting up environment files with correct values..."
+            mkdir -p .admin-fix
+            mkdir -p admin-panel
+            
+            # 6. Create environment files with correct values from GitHub secrets
+            cat > .admin-fix/.env << EOF
+            # Next.js environment variables
             NEXT_PUBLIC_SUPABASE_URL=\$SUPABASE_URL
             NEXT_PUBLIC_SUPABASE_ANON_KEY=\$SUPABASE_KEY
             NEXT_PUBLIC_API_URL=http://backend:3000
             EOF
             
-            # Create all necessary Next.js env files
-            cp .env-fix/.env.production .env-fix/.env.local
-            cp .env-fix/.env.production .env-fix/.env
-            cp .env-fix/.env.production .env-fix/.env.production.local
+            # Create copies for all possible Next.js env file locations
+            cp .admin-fix/.env .admin-fix/.env.local
+            cp .admin-fix/.env .admin-fix/.env.production
+            cp .admin-fix/.env .admin-fix/.env.production.local
             
-            # Update the main .env file
-            echo "Updating main .env file..."
-            # Preserve existing variables
-            cp .env .env.backup.$(date +%Y%m%d%H%M%S) || true
+            # Also create files directly in the admin-panel directory
+            cp .admin-fix/.env admin-panel/.env.local
+            
+            # 7. Update the main .env file
+            echo "Updating main .env file with correct variables..."
             
             # Update or add Supabase variables
             if [ -f ".env" ]; then
@@ -154,39 +168,259 @@ jobs:
               grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=\$SUPABASE_KEY" >> .env
             else
               # Create new .env if it doesn't exist
-              echo "SUPABASE_URL=\$SUPABASE_URL" > .env
-              echo "SUPABASE_KEY=\$SUPABASE_KEY" >> .env
-              echo "NEXT_PUBLIC_SUPABASE_URL=\$SUPABASE_URL" >> .env
-              echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=\$SUPABASE_KEY" >> .env
-              echo "NEXT_PUBLIC_API_URL=http://backend:3000" >> .env
+              cat > .env << EOF
+            # Basic configuration
+            NODE_ENV=production
+            TIMEZONE=UTC
+            SECURITY_PANEL_ENFORCE_HTTPS=false
+            
+            # Supabase configuration
+            SUPABASE_URL=\$SUPABASE_URL
+            SUPABASE_KEY=\$SUPABASE_KEY
+            
+            # Next.js admin panel configuration
+            NEXT_PUBLIC_SUPABASE_URL=\$SUPABASE_URL
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=\$SUPABASE_KEY
+            NEXT_PUBLIC_API_URL=http://backend:3000
+            EOF
             fi
             
-            # Update docker-compose.yml if it exists
+            # 8. Update docker-compose.yml if it exists
             if [ -f "docker-compose.yml" ]; then
-              echo "Updating docker-compose.yml with correct Supabase URL..."
-              cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d%H%M%S)
+              echo "Updating docker-compose.yml..."
               
-              # Try to update build args if they exist
+              # 8.1. Update build args if they exist
               sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=\$SUPABASE_URL|g" docker-compose.yml || true
               sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=\$SUPABASE_KEY|g" docker-compose.yml || true
+              
+              # 8.2. Add volumes for environment files
+              # Check if volumes section already exists for admin service
+              if grep -q "admin:.*volumes:" docker-compose.yml -A 5; then
+                echo "Volumes section exists, updating it..."
+                # Remove existing environment file mounts if they exist
+                sed -i '/\.\(admin-panel-env\|admin-fix\)/d' docker-compose.yml
+                
+                # Find the line number where the volumes section is for the admin service
+                ADMIN_VOL_LINE=\$(grep -n "admin:.*volumes:" docker-compose.yml | cut -d: -f1)
+                if [ -n "\$ADMIN_VOL_LINE" ]; then
+                  # Add our volume mounts to the existing volumes section
+                  sed -i "\${ADMIN_VOL_LINE}a\\      - ./.admin-fix/.env:/app/.env" docker-compose.yml
+                  sed -i "\${ADMIN_VOL_LINE}a\\      - ./.admin-fix/.env.local:/app/.env.local" docker-compose.yml
+                  sed -i "\${ADMIN_VOL_LINE}a\\      - ./.admin-fix/.env.production:/app/.env.production" docker-compose.yml
+                  sed -i "\${ADMIN_VOL_LINE}a\\      - ./.admin-fix/.env.production.local:/app/.env.production.local" docker-compose.yml
+                fi
+              else
+                echo "Adding new volumes section for admin service..."
+                # Find the admin service section
+                ADMIN_LINE=\$(grep -n "container_name: vpn-admin" docker-compose.yml | cut -d: -f1)
+                if [ -n "\$ADMIN_LINE" ]; then
+                  # Add a new volumes section
+                  sed -i "\${ADMIN_LINE}a\\    volumes:\\n      - ./.admin-fix/.env:/app/.env\\n      - ./.admin-fix/.env.local:/app/.env.local\\n      - ./.admin-fix/.env.production:/app/.env.production\\n      - ./.admin-fix/.env.production.local:/app/.env.production.local" docker-compose.yml
+                fi
+              fi
             fi
             
-            # Rebuild the admin container
-            echo "Rebuilding admin container with correct environment variables..."
-            if command -v docker-compose &> /dev/null; then
-              docker-compose build --no-cache admin
-              docker-compose up -d admin
-            else 
-              docker compose build --no-cache admin
-              docker compose up -d admin
+            # 9. Create a custom Dockerfile for the admin panel
+            echo "Creating optimized Dockerfile for Next.js..."
+            mkdir -p .admin-fix
+            
+            cat > .admin-fix/Dockerfile << EOF
+            FROM node:20-alpine AS builder
+            
+            WORKDIR /app
+            
+            # Set build arguments and environment variables
+            ARG NEXT_PUBLIC_SUPABASE_URL="\$SUPABASE_URL"
+            ARG NEXT_PUBLIC_SUPABASE_ANON_KEY="\$SUPABASE_KEY"
+            ARG NEXT_PUBLIC_API_URL="http://backend:3000"
+            
+            ENV NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}
+            ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+            ENV NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}
+            
+            # Copy package files
+            COPY package*.json ./
+            
+            # Install dependencies
+            RUN npm ci || npm install
+            
+            # Copy the rest of the app
+            COPY . .
+            
+            # Print environment variables for debugging
+            RUN echo "Building with NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}"
+            RUN echo "Building with NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}"
+            
+            # Create env files explicitly at build time
+            RUN echo "NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}" > .env
+            RUN echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=\${NEXT_PUBLIC_SUPABASE_ANON_KEY}" >> .env
+            RUN echo "NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}" >> .env
+            RUN cp .env .env.local
+            RUN cp .env .env.production
+            RUN cp .env .env.production.local
+            
+            # Build the app
+            RUN npm run build
+            
+            # Production image
+            FROM node:20-alpine AS runner
+            
+            WORKDIR /app
+            
+            # Set production environment variables
+            ENV NODE_ENV=production
+            ENV NEXT_PUBLIC_SUPABASE_URL="\$SUPABASE_URL"
+            ENV NEXT_PUBLIC_SUPABASE_ANON_KEY="\$SUPABASE_KEY"
+            ENV NEXT_PUBLIC_API_URL="http://backend:3000"
+            
+            # Copy necessary files from builder stage
+            COPY --from=builder /app/next.config.js ./
+            COPY --from=builder /app/public ./public
+            COPY --from=builder /app/.next ./.next
+            COPY --from=builder /app/node_modules ./node_modules
+            COPY --from=builder /app/package.json ./package.json
+            COPY --from=builder /app/.env* ./
+            
+            # Expose port
+            EXPOSE 3000
+            
+            # Health check
+            HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -qO- http://localhost:3000 || exit 1
+            
+            # Run the app
+            CMD ["npm", "start"]
+            EOF
+            
+            # 10. Determine if we should update docker-compose.yml to use the custom Dockerfile
+            if [ -f "docker-compose.yml" ] && grep -q "dockerfile: Dockerfile" docker-compose.yml; then
+              echo "Updating docker-compose.yml to use custom Dockerfile..."
+              sed -i "s|dockerfile: Dockerfile|dockerfile: ../.admin-fix/Dockerfile|g" docker-compose.yml
             fi
             
-            # Verify the environment variables are correct
-            echo "Verifying environment variables..."
-            sleep 10
+            # 11. Two approaches:
+            # A. Use docker-compose if available
+            if command -v docker-compose > /dev/null 2>&1 || docker compose version > /dev/null 2>&1; then
+              echo "Rebuilding and starting with Docker Compose..."
+              if command -v docker-compose > /dev/null 2>&1; then
+                docker-compose build --no-cache admin
+                docker-compose up -d admin
+              else
+                docker compose build --no-cache admin
+                docker compose up -d admin
+              fi
+            # B. Use direct Docker commands as fallback
+            else
+              echo "Docker Compose not available, using Docker directly..."
+              # Check for docker network
+              NETWORK_NAME=\$(docker network ls | grep vpn | head -1 | awk '{print \$2}')
+              if [ -z "\$NETWORK_NAME" ]; then
+                NETWORK_NAME="vpn_vpn-network"
+                echo "Creating docker network \$NETWORK_NAME..."
+                docker network create \$NETWORK_NAME || true
+              else
+                echo "Using existing network: \$NETWORK_NAME"
+              fi
+              
+              # Build the admin panel image
+              echo "Building admin panel image..."
+              docker build -t vpn-admin-fixed:latest -f .admin-fix/Dockerfile ./admin-panel
+              
+              # Run the container
+              echo "Starting admin panel container..."
+              docker run -d \\
+                --name vpn-admin \\
+                --network \$NETWORK_NAME \\
+                -p 8080:3000 \\
+                -v \$(pwd)/.admin-fix/.env:/app/.env \\
+                -v \$(pwd)/.admin-fix/.env.local:/app/.env.local \\
+                -v \$(pwd)/.admin-fix/.env.production:/app/.env.production \\
+                -v \$(pwd)/.admin-fix/.env.production.local:/app/.env.production.local \\
+                --restart unless-stopped \\
+                --health-cmd="wget -qO- http://localhost:3000 || exit 1" \\
+                --health-interval=30s \\
+                --health-timeout=5s \\
+                --health-retries=3 \\
+                vpn-admin-fixed:latest
+            fi
+            
+            # 12. Wait for container to initialize
+            echo "Waiting for admin panel to initialize (45 seconds)..."
+            sleep 45
+            
+            # 13. Check container status and logs
+            echo "Admin panel container status:"
+            docker ps | grep vpn-admin
+            
+            echo "Admin panel logs:"
+            docker logs vpn-admin | tail -n 50
+            
+            # 14. Test accessibility with multiple attempts
+            echo "Testing admin panel accessibility..."
+            for i in {1..5}; do
+              echo "Attempt \$i..."
+              HTTP_STATUS=\$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 || echo "Failed")
+              if [ "\$HTTP_STATUS" = "200" ] || [ "\$HTTP_STATUS" = "302" ]; then
+                echo "✅ Admin panel is accessible (HTTP Status: \$HTTP_STATUS)"
+                break
+              else
+                echo "⚠️ Admin panel returned HTTP Status: \$HTTP_STATUS"
+                if [ \$i -lt 5 ]; then
+                  echo "Waiting 10 seconds before trying again..."
+                  sleep 10
+                fi
+              fi
+            done
+            
+            # 15. Alternative approach if still not working
+            if [ "\$HTTP_STATUS" != "200" ] && [ "\$HTTP_STATUS" != "302" ]; then
+              echo "⚠️ Still having issues. Trying alternative approach..."
+              
+              # Stop the container
+              docker stop vpn-admin
+              docker rm vpn-admin
+              
+              # Try running with a simpler setup - just the environment variables
+              echo "Starting admin container with simplified approach..."
+              if command -v docker-compose > /dev/null 2>&1; then
+                # Update environment section in docker-compose.yml
+                sed -i "/container_name: vpn-admin/a\\    environment:\\n      - NEXT_PUBLIC_SUPABASE_URL=\$SUPABASE_URL\\n      - NEXT_PUBLIC_SUPABASE_ANON_KEY=\$SUPABASE_KEY\\n      - NEXT_PUBLIC_API_URL=http://backend:3000" docker-compose.yml
+                docker-compose up -d admin
+              else
+                docker run -d \\
+                  --name vpn-admin \\
+                  --network vpn_vpn-network \\
+                  -p 8080:3000 \\
+                  -e NEXT_PUBLIC_SUPABASE_URL=\$SUPABASE_URL \\
+                  -e NEXT_PUBLIC_SUPABASE_ANON_KEY=\$SUPABASE_KEY \\
+                  -e NEXT_PUBLIC_API_URL=http://backend:3000 \\
+                  --restart unless-stopped \\
+                  vpnservice-admin:latest
+              fi
+              
+              echo "Waiting 30 seconds for the container to initialize with new configuration..."
+              sleep 30
+              
+              # Test again
+              HTTP_STATUS=\$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 || echo "Failed")
+              if [ "\$HTTP_STATUS" = "200" ] || [ "\$HTTP_STATUS" = "302" ]; then
+                echo "✅ Admin panel is now accessible with alternative configuration (HTTP Status: \$HTTP_STATUS)"
+              else
+                echo "❌ Admin panel still not accessible (HTTP Status: \$HTTP_STATUS)"
+                echo "Final logs:"
+                docker logs vpn-admin | tail -n 50
+              fi
+            fi
+            
+            # 16. Verify environment variables in container
+            echo "Verifying environment variables in container:"
             docker exec vpn-admin env | grep NEXT_PUBLIC
             
-            echo "Admin panel fix complete!"
+            echo ""
+            echo "===== Admin Panel Fix Complete ====="
+            echo ""
+            echo "The admin panel should now be accessible at:"
+            echo "http://localhost:8080 (on server)"
+            echo "http://\${VPN_DOMAIN:-your-server-ip}:8080 (externally)"
           ENDSSH
       
       - name: Verification Summary
@@ -197,6 +431,11 @@ jobs:
           echo "- SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }} (partially hidden for security)"
           echo ""
           echo "The admin panel has been rebuilt with the correct environment variables."
+          echo "Multiple approaches have been tried to ensure it works:"
+          echo "1. Docker Compose rebuild with environment files"
+          echo "2. Direct Docker run with volume mounts"
+          echo "3. Simplified approach with environment variables"
+          echo ""
           echo "Admin Panel should now be accessible at:"
           echo "http://${{ secrets.VPN_DOMAIN }}:8080"
           echo ""

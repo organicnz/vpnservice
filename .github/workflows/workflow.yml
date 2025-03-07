@@ -99,24 +99,104 @@ jobs:
         env:
           SSH_USER: organic
           SERVER_IP: ${{ secrets.VPN_DOMAIN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          echo "Executing Admin Panel Fix remotely..."
-          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
+          echo "Executing Admin Panel Fix remotely with correct Supabase URL and key..."
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << ENDSSH
             cd ~/dev/vpnservice
             
             echo "Pulling latest changes from repository..."
             git pull origin main
             
-            echo "Running comprehensive admin panel fix script..."
-            chmod +x complete-admin-fix.sh
-            ./complete-admin-fix.sh
+            echo "Fixing Admin Panel Environment Variables..."
+            
+            # Using variables from GitHub secrets
+            SUPABASE_URL="${SUPABASE_URL}"
+            SUPABASE_KEY="${SUPABASE_KEY}"
+            
+            echo "Using Supabase URL: \$SUPABASE_URL"
+            
+            # Stop and remove the admin container
+            echo "Stopping admin container..."
+            docker stop vpn-admin || true
+            docker rm vpn-admin || true
+            
+            # Create environment files with correct variables from secrets
+            echo "Creating environment files with correct Supabase URL and key..."
+            mkdir -p .env-fix
+            cat > .env-fix/.env.production << EOF
+            NEXT_PUBLIC_SUPABASE_URL=\$SUPABASE_URL
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=\$SUPABASE_KEY
+            NEXT_PUBLIC_API_URL=http://backend:3000
+            EOF
+            
+            # Create all necessary Next.js env files
+            cp .env-fix/.env.production .env-fix/.env.local
+            cp .env-fix/.env.production .env-fix/.env
+            cp .env-fix/.env.production .env-fix/.env.production.local
+            
+            # Update the main .env file
+            echo "Updating main .env file..."
+            # Preserve existing variables
+            cp .env .env.backup.$(date +%Y%m%d%H%M%S) || true
+            
+            # Update or add Supabase variables
+            if [ -f ".env" ]; then
+              # Update existing variables
+              sed -i "s|SUPABASE_URL=.*|SUPABASE_URL=\$SUPABASE_URL|g" .env
+              sed -i "s|SUPABASE_KEY=.*|SUPABASE_KEY=\$SUPABASE_KEY|g" .env
+              sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=\$SUPABASE_URL|g" .env
+              sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=\$SUPABASE_KEY|g" .env
+              
+              # Add if they don't exist
+              grep -q "NEXT_PUBLIC_SUPABASE_URL" .env || echo "NEXT_PUBLIC_SUPABASE_URL=\$SUPABASE_URL" >> .env
+              grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=\$SUPABASE_KEY" >> .env
+            else
+              # Create new .env if it doesn't exist
+              echo "SUPABASE_URL=\$SUPABASE_URL" > .env
+              echo "SUPABASE_KEY=\$SUPABASE_KEY" >> .env
+              echo "NEXT_PUBLIC_SUPABASE_URL=\$SUPABASE_URL" >> .env
+              echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=\$SUPABASE_KEY" >> .env
+              echo "NEXT_PUBLIC_API_URL=http://backend:3000" >> .env
+            fi
+            
+            # Update docker-compose.yml if it exists
+            if [ -f "docker-compose.yml" ]; then
+              echo "Updating docker-compose.yml with correct Supabase URL..."
+              cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d%H%M%S)
+              
+              # Try to update build args if they exist
+              sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=\$SUPABASE_URL|g" docker-compose.yml || true
+              sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=\$SUPABASE_KEY|g" docker-compose.yml || true
+            fi
+            
+            # Rebuild the admin container
+            echo "Rebuilding admin container with correct environment variables..."
+            if command -v docker-compose &> /dev/null; then
+              docker-compose build --no-cache admin
+              docker-compose up -d admin
+            else 
+              docker compose build --no-cache admin
+              docker compose up -d admin
+            fi
+            
+            # Verify the environment variables are correct
+            echo "Verifying environment variables..."
+            sleep 10
+            docker exec vpn-admin env | grep NEXT_PUBLIC
+            
+            echo "Admin panel fix complete!"
           ENDSSH
       
       - name: Verification Summary
         run: |
           echo "===== Admin Panel Fix Summary ====="
-          echo "The admin panel fix has completed."
+          echo "The admin panel environment variables have been updated with:"
+          echo "- SUPABASE_URL: ${{ secrets.SUPABASE_URL }}"
+          echo "- SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }} (partially hidden for security)"
           echo ""
+          echo "The admin panel has been rebuilt with the correct environment variables."
           echo "Admin Panel should now be accessible at:"
           echo "http://${{ secrets.VPN_DOMAIN }}:8080"
           echo ""
@@ -147,6 +227,8 @@ jobs:
         env:
           SSH_USER: organic
           SERVER_IP: ${{ secrets.VPN_DOMAIN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
             set +e
@@ -174,12 +256,26 @@ jobs:
               # Update with GitHub secrets
               echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
               echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> .env
+              echo "NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
+              echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY }}" >> .env
               echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> .env
               echo "XUI_USERNAME=${{ secrets.XUI_USERNAME }}" >> .env
               echo "XUI_PASSWORD=${{ secrets.XUI_PASSWORD }}" >> .env
               echo "VPN_DOMAIN=${VPN_DOMAIN:-${{ secrets.VPN_DOMAIN }}}" >> .env
               echo "VPN_ADMIN_EMAIL=${VPN_ADMIN_EMAIL:-admin@example.com}" >> .env
               echo "NODE_ENV=production" >> .env
+            fi
+
+            # Also update the .env with correct Supabase variables if they exist
+            if [ -f ".env" ]; then
+              sed -i "s|SUPABASE_URL=.*|SUPABASE_URL=${{ secrets.SUPABASE_URL }}|g" .env
+              sed -i "s|SUPABASE_KEY=.*|SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}|g" .env
+              sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}|g" .env
+              sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY }}|g" .env
+              
+              # Add if they don't exist
+              grep -q "NEXT_PUBLIC_SUPABASE_URL" .env || echo "NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
+              grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY }}" >> .env
             fi
 
             # Start or restart Docker services
@@ -253,6 +349,8 @@ jobs:
           SERVER_IP: ${{ secrets.VPN_DOMAIN }}
           COMPONENT: ${{ steps.component.outputs.component_name }}
           CONTAINER: ${{ steps.component.outputs.container_name }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           echo "Rebuilding $COMPONENT component remotely..."
           ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << ENDSSH
@@ -260,6 +358,31 @@ jobs:
             
             echo "Pulling latest changes from repository..."
             git pull origin main
+            
+            # Update .env file with correct values if rebuilding admin
+            if [ "$COMPONENT" = "admin" ]; then
+              echo "Updating environment variables for admin panel..."
+              if [ -f ".env" ]; then
+                sed -i "s|SUPABASE_URL=.*|SUPABASE_URL=${SUPABASE_URL}|g" .env
+                sed -i "s|SUPABASE_KEY=.*|SUPABASE_KEY=${SUPABASE_KEY}|g" .env
+                sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}|g" .env
+                sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}|g" .env
+                
+                # Add if they don't exist
+                grep -q "NEXT_PUBLIC_SUPABASE_URL" .env || echo "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" >> .env
+                grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}" >> .env
+              fi
+              
+              # Also update docker-compose.yml if it exists
+              if [ -f "docker-compose.yml" ]; then
+                echo "Updating docker-compose.yml with correct Supabase URL..."
+                cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d%H%M%S)
+                
+                # Try to update build args if they exist
+                sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}|g" docker-compose.yml || true
+                sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}|g" docker-compose.yml || true
+              fi
+            fi
             
             echo "Stopping and removing the $COMPONENT container..."
             docker stop $CONTAINER || true
@@ -282,12 +405,26 @@ jobs:
             
             echo "Container logs:"
             docker logs $CONTAINER | tail -n 30
+            
+            # Verify environment variables for admin panel
+            if [ "$COMPONENT" = "admin" ]; then
+              echo "Verifying admin panel environment variables:"
+              docker exec $CONTAINER env | grep NEXT_PUBLIC
+            fi
           ENDSSH
       
       - name: Component Rebuild Summary
         run: |
           echo "===== ${{ steps.component.outputs.component_name }} Rebuild Summary ====="
           echo "The ${{ steps.component.outputs.component_name }} component has been rebuilt."
+          
+          if [ "${{ steps.component.outputs.component_name }}" = "admin" ]; then
+            echo ""
+            echo "Admin panel was rebuilt with the following environment variables:"
+            echo "- SUPABASE_URL: ${{ secrets.SUPABASE_URL }}"
+            echo "- SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }} (partially hidden for security)"
+          fi
+          
           echo ""
           echo "Component should now be accessible at:"
           if [ "${{ steps.component.outputs.component_name }}" = "xui" ]; then

@@ -92,7 +92,8 @@ jobs:
   # Consolidated admin panel fix job
   fix-admin-panel:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action_type == 'fix-admin'
+    # Run on main branch push or when manually triggered with fix-admin option
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action_type == 'fix-admin')
     timeout-minutes: 30
     
     steps:
@@ -607,8 +608,8 @@ jobs:
   # Standard deployment job
   deploy:
     runs-on: ubuntu-latest
-    # Only run on main branch or manual trigger
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action_type == 'deploy')
+    # Run on main branch push or manual trigger with deploy option
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action_type == 'deploy')
     timeout-minutes: 20
     
     steps:
@@ -812,7 +813,8 @@ jobs:
   # Rebuild specific components
   rebuild-component:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && startsWith(github.event.inputs.action_type, 'rebuild-')
+    # Run on main branch push or when manually triggered with rebuild-* option
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && startsWith(github.event.inputs.action_type, 'rebuild-'))
     timeout-minutes: 20
     
     steps:
@@ -1028,7 +1030,8 @@ jobs:
   # Integrated admin panel fix directly in workflow (no separate script)
   integrated-admin-fix:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action_type == 'integrated-admin-fix'
+    # Run on main branch push or when manually triggered with integrated-admin-fix option
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action_type == 'integrated-admin-fix')
     timeout-minutes: 15
     
     steps:

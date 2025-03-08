@@ -15,10 +15,10 @@ const nextConfig = {
   
   // Improve image optimization
   images: {
-    domains: ['localhost', 'vpn-service.germanywestcentral.cloudapp.azure.com'],
+    unoptimized: true,
+    formats: ['image/avif', 'image/webp'],
     minimumCacheTTL: 60,
-    // Disable image optimization in development
-    unoptimized: process.env.NODE_ENV === 'development',
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048],
   },
 
   // Headers for security
@@ -50,6 +50,11 @@ const nextConfig = {
     appDir: true,
     serverComponentsExternalPackages: ['@supabase/supabase-js', 'next'],
     esmExternals: 'loose',
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
+    optimizeCss: true,
+    scrollRestoration: true,
   },
   
   // Enable SWC transpilation for styled-components
@@ -65,6 +70,13 @@ const nextConfig = {
     enabled: true,
   },
 
+  // Better error handling
+  onDemandEntries: {
+    maxInactiveAge: 25 * 1000,
+    pagesBufferLength: 4,
+  },
+
+  // Performance optimization for webpack
   webpack: (config, { isServer }) => {
     // Fix for module resolution errors
     if (isServer) {
@@ -72,6 +84,33 @@ const nextConfig = {
       config.resolve.alias['react-server-dom-webpack/static.edge'] = require.resolve('react-server-dom-webpack/client.edge');
       config.resolve.alias['react-server-dom-webpack/server.edge'] = require.resolve('react-server-dom-webpack/server.edge');
     }
+    
+    // Optimize production build
+    if (!isServer) {
+      // Split chunks optimization
+      config.optimization.splitChunks = {
+        chunks: 'all',
+        minSize: 20000,
+        maxSize: 244000,
+        minChunks: 1,
+        maxAsyncRequests: 30,
+        maxInitialRequests: 30,
+        automaticNameDelimiter: '~',
+        cacheGroups: {
+          vendors: {
+            test: /[\\/]node_modules[\\/]/,
+            priority: -10,
+            reuseExistingChunk: true,
+          },
+          default: {
+            minChunks: 2,
+            priority: -20,
+            reuseExistingChunk: true,
+          },
+        },
+      };
+    }
+
     return config;
   },
 };

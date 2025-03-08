@@ -8,8 +8,8 @@ WORKDIR /app
 # Copy package files to leverage Docker's caching
 COPY package*.json ./
 
-# Install dependencies - using npm install instead of npm ci since package-lock.json might not exist
-RUN npm install --omit=dev && \
+# Install dependencies with performance optimizations
+RUN npm ci --only=production --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund && \
     npm cache clean --force
 
 # Copy application code
@@ -34,6 +34,19 @@ COPY --from=build /app/src ./src
 RUN mkdir -p logs && \
     chown -R nodeapp:nodeapp logs && \
     chown -R nodeapp:nodeapp .
+
+# Add security hardening
+RUN echo "fs.file-max = 65535" > /etc/sysctl.conf && \
+    echo "net.ipv4.ip_local_port_range = 1024 65000" >> /etc/sysctl.conf && \
+    echo "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.conf && \
+    npm i -g npm-audit-ci && \
+    npm-audit-ci
+
+# Performance tuning with environment variables
+ENV NODE_ENV=production \
+    NODE_OPTIONS="--max-old-space-size=2048 --max-http-header-size=16384" \
+    UV_THREADPOOL_SIZE=128 \
+    NODE_HTTP_PARSER=legacy
 
 # Switch to non-root user for security
 USER nodeapp

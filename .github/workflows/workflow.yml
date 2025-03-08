@@ -37,8 +37,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: 20
+          cache: npm
           cache-dependency-path: ${{ matrix.component }}/package-lock.json
 
       - name: Install dependencies
@@ -1044,9 +1044,15 @@ jobs:
         run: |
           set -o pipefail
 
-          echo "::group::Establishing SSH connection"
-          echo "Connecting to $SERVER_IP as $SSH_USER..."
-          echo "::endgroup::"
+          # Define reusable SSH connection function
+          setup_ssh_connection() {
+            echo "::group::Establishing SSH connection"
+            echo "Connecting to $SERVER_IP as $SSH_USER..."
+            echo "::endgroup::"
+          }
+
+          # Use the function
+          setup_ssh_connection
 
           echo "Executing Integrated Admin Panel Fix remotely..."
           # Using a variable to hold SSH command output
@@ -1098,6 +1104,10 @@ jobs:
             echo "" >> admin-panel/Dockerfile.fixed
             echo "WORKDIR /app" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
+            
+            # Better layer caching - copy package files first
+            echo "# Copy package files for better layer caching" >> admin-panel/Dockerfile.fixed
+            echo "COPY package.json package-lock.json* ./" >> admin-panel/Dockerfile.fixed
             echo "# Set build arguments and environment variables explicitly with actual values" >> admin-panel/Dockerfile.fixed
             echo "ARG NEXT_PUBLIC_SUPABASE_URL=\"${SUPABASE_URL}\"" >> admin-panel/Dockerfile.fixed
             echo "ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=\"${SUPABASE_KEY}\"" >> admin-panel/Dockerfile.fixed

@@ -190,21 +190,20 @@ jobs:
               grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY" >> .env
               echo "Updated .env file with correct values"
             else
-              # Create new .env if it doesn't exist
+              # Create a new .env file
+              echo "Creating new .env file..."
               echo "# Basic configuration" > .env
               echo "NODE_ENV=production" >> .env
-              echo "TIMEZONE=UTC" >> .env
-              echo "SECURITY_PANEL_ENFORCE_HTTPS=false" >> .env
               echo "" >> .env
               echo "# Supabase configuration" >> .env
-              echo "SUPABASE_URL=$SUPABASE_URL" >> .env
-              echo "SUPABASE_KEY=$SUPABASE_KEY" >> .env
+              echo "SUPABASE_URL=${SUPABASE_URL}" >> .env
+              echo "SUPABASE_KEY=${SUPABASE_KEY}" >> .env
               echo "" >> .env
               echo "# Next.js admin panel configuration" >> .env
-              echo "NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .env
-              echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY" >> .env
+              echo "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" >> .env
+              echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}" >> .env
               echo "NEXT_PUBLIC_API_URL=http://backend:3000" >> .env
-              echo "Created new .env file with correct values"
+              echo "Created new .env file with required variables"
             fi
             echo "::endgroup::"
             
@@ -536,7 +535,6 @@ jobs:
             else
               echo "ADMIN_PANEL_FIXED=false"
             fi
-            echo "::endgroup::"
           ENDSSH
           
           # Capture the success status
@@ -838,7 +836,7 @@ jobs:
           echo "::endgroup::"
           
           echo "Rebuilding $COMPONENT component remotely..."
-          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << ENDSSH
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
             set +e
             
             cd ~/dev/vpnservice
@@ -870,19 +868,17 @@ jobs:
               else
                 # Create a new .env file
                 echo "Creating new .env file..."
-                cat > .env << EOF
-            # Basic configuration
-            NODE_ENV=production
-            
-            # Supabase configuration
-            SUPABASE_URL=${SUPABASE_URL}
-            SUPABASE_KEY=${SUPABASE_KEY}
-            
-            # Next.js admin panel configuration
-            NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
-            NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
-            NEXT_PUBLIC_API_URL=http://backend:3000
-EOF
+                echo "# Basic configuration" > .env
+                echo "NODE_ENV=production" >> .env
+                echo "" >> .env
+                echo "# Supabase configuration" >> .env
+                echo "SUPABASE_URL=${SUPABASE_URL}" >> .env
+                echo "SUPABASE_KEY=${SUPABASE_KEY}" >> .env
+                echo "" >> .env
+                echo "# Next.js admin panel configuration" >> .env
+                echo "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" >> .env
+                echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}" >> .env
+                echo "NEXT_PUBLIC_API_URL=http://backend:3000" >> .env
                 echo "Created new .env file with required variables"
               fi
               

@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
+    # Empty inputs to comply with GitHub Actions requirements
+    # The build output cannot be affected by user parameters
+    # other than the build entry point and source location
     inputs: {}
 
 permissions:
@@ -1060,6 +1063,7 @@ jobs:
             # 3. Create explicit Next.js environment files in the admin-panel directory
             echo "Creating Next.js environment files..."
             mkdir -p admin-panel
+            # Pass the actual values, not variable references
             echo "# Next.js runtime environment variables" > admin-panel/.env
             echo "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" >> admin-panel/.env
             echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}" >> admin-panel/.env
@@ -1075,19 +1079,19 @@ jobs:
             # 4. Create a custom Dockerfile that ensures proper Next.js environment variable handling
             echo "Creating optimized Next.js Dockerfile..."
             
-            # Create Dockerfile using echo commands
+            # Create Dockerfile using echo commands - pass the actual values, not variable references
             echo "FROM node:20-alpine AS builder" > admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
             echo "WORKDIR /app" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            echo "# Set build arguments and environment variables explicitly" >> admin-panel/Dockerfile.fixed
-            echo "ARG NEXT_PUBLIC_SUPABASE_URL=\"\${SUPABASE_URL}\"" >> admin-panel/Dockerfile.fixed
-            echo "ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=\"\${SUPABASE_KEY}\"" >> admin-panel/Dockerfile.fixed
-            echo "ARG NEXT_PUBLIC_API_URL=\"\${API_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "# Set build arguments and environment variables explicitly with actual values" >> admin-panel/Dockerfile.fixed
+            echo "ARG NEXT_PUBLIC_SUPABASE_URL=\"${SUPABASE_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=\"${SUPABASE_KEY}\"" >> admin-panel/Dockerfile.fixed
+            echo "ARG NEXT_PUBLIC_API_URL=\"${API_URL}\"" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            echo "ENV NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}" >> admin-panel/Dockerfile.fixed
-            echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\${NEXT_PUBLIC_SUPABASE_ANON_KEY}" >> admin-panel/Dockerfile.fixed
-            echo "ENV NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_SUPABASE_URL=\"${SUPABASE_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\"${SUPABASE_KEY}\"" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_API_URL=\"${API_URL}\"" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
             echo "# Copy package files first for better cache utilization" >> admin-panel/Dockerfile.fixed
             echo "COPY package.json package-lock.json* ./" >> admin-panel/Dockerfile.fixed
@@ -1111,6 +1115,18 @@ jobs:
             echo "RUN cp .env .env.production" >> admin-panel/Dockerfile.fixed
             echo "RUN cp .env .env.production.local" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Add a temporary next.config.js to enable server-side rendering" >> admin-panel/Dockerfile.fixed
+            echo "RUN if [ -f \"next.config.js\" ]; then cp next.config.js next.config.js.bak; fi" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"/** @type {import('next').NextConfig} */\" > next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"const nextConfig = {\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"  output: 'standalone',\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"  images: { unoptimized: true },\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"  experimental: {\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"    serverComponentsExternalPackages: ['next'],\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"  },\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"};\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"module.exports = nextConfig;\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
             echo "# Force Next.js to use production mode" >> admin-panel/Dockerfile.fixed
             echo "ENV NODE_ENV=production" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
@@ -1122,11 +1138,11 @@ jobs:
             echo "" >> admin-panel/Dockerfile.fixed
             echo "WORKDIR /app" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            echo "# Set runtime environment variables" >> admin-panel/Dockerfile.fixed
+            echo "# Set runtime environment variables with actual values" >> admin-panel/Dockerfile.fixed
             echo "ENV NODE_ENV=production" >> admin-panel/Dockerfile.fixed
-            echo "ENV NEXT_PUBLIC_SUPABASE_URL=\"\${SUPABASE_URL}\"" >> admin-panel/Dockerfile.fixed
-            echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\"\${SUPABASE_KEY}\"" >> admin-panel/Dockerfile.fixed
-            echo "ENV NEXT_PUBLIC_API_URL=\"\${API_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_SUPABASE_URL=\"${SUPABASE_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\"${SUPABASE_KEY}\"" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_API_URL=\"${API_URL}\"" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
             echo "# Copy necessary files from builder stage" >> admin-panel/Dockerfile.fixed
             echo "COPY --from=builder /app/next.config.js ./" >> admin-panel/Dockerfile.fixed
@@ -1140,8 +1156,7 @@ jobs:
             echo "EXPOSE 3000" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
             echo "# Add health check" >> admin-panel/Dockerfile.fixed
-            echo "HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \\" >> admin-panel/Dockerfile.fixed
-            echo "  CMD wget -qO- http://localhost:3000 || exit 1" >> admin-panel/Dockerfile.fixed
+            echo "HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -qO- http://localhost:3000 || exit 1" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
             echo "# Start the application" >> admin-panel/Dockerfile.fixed
             echo "CMD [\"npm\", \"start\"]" >> admin-panel/Dockerfile.fixed

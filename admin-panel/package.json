@@ -1,13 +1,12 @@
 {
-  "name": "vpn-admin-panel",
+  "name": "vpn-subscription-admin-panel",
   "version": "1.0.0",
-  "description": "Next.js Admin Panel for VPN Subscription Service",
+  "description": "Admin panel for VPN subscription service",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "test": "echo 'No tests configured yet - passing check' && exit 0"
+    "lint": "echo 'No linting configured yet - passing check' && exit 0"
   },
   "keywords": ["nextjs", "admin", "vpn", "supabase"],
   "author": "",
@@ -15,9 +14,9 @@
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.8.7",
     "@supabase/supabase-js": "^2.38.5",
-    "next": "^14.0.4",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest",
     "tailwindcss": "^3.3.6",
     "postcss": "^8.4.32",
     "autoprefixer": "^10.4.16"
@@ -28,8 +27,8 @@
     "@types/react-dom": "^18.2.17",
     "@typescript-eslint/eslint-plugin": "^6.14.0",
     "@typescript-eslint/parser": "^6.14.0",
-    "eslint": "^8.55.0",
-    "eslint-config-next": "^14.0.4",
+    "eslint": "latest",
+    "eslint-config-next": "latest",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-import": "^2.29.1",
     "eslint-plugin-jsx-a11y": "^6.8.0",

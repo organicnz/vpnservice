@@ -36,7 +36,7 @@ services:
       - vpn-network
     healthcheck:
       <<: *default-healthcheck
-      test: ["CMD", "wget", "-qO-", "http://localhost:2053/"]
+      test: [CMD, wget, -qO-, http://localhost:2053/]
     logging: *default-logging
     # Security and resource limits
     deploy:
@@ -79,7 +79,7 @@ services:
     logging: *default-logging
     healthcheck:
       <<: *default-healthcheck
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      test: [CMD, wget, -qO-, http://localhost:3000/health]
       timeout: 5s
     # Security and resource limits
     deploy:
@@ -128,7 +128,7 @@ services:
     logging: *default-logging
     healthcheck:
       <<: *default-healthcheck
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      test: [CMD, wget, -qO-, http://localhost:3000/]
     # Security and resource limits
     deploy:
       resources:

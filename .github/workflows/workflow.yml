@@ -1199,15 +1199,20 @@ jobs:
             echo "RUN echo \"    return config;\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"  },\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"};\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"module.exports = nextConfig;\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
 
-            echo "# Set NODE_ENV for build" >> admin-panel/Dockerfile.fixed
+            echo "# Set runtime environment variables" >> admin-panel/Dockerfile.fixed
             echo "ENV NODE_ENV=production" >> admin-panel/Dockerfile.fixed
-            echo "ENV NEXT_DISABLE_ESLINT=1" >> admin-panel/Dockerfile.fixed
             echo "ENV NEXT_TELEMETRY_DISABLED=1" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_SUPABASE_URL=\"\${NEXT_PUBLIC_SUPABASE_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\"\${NEXT_PUBLIC_SUPABASE_ANON_KEY}\"" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_API_URL=\"\${NEXT_PUBLIC_API_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
             echo "# Build the app with additional memory" >> admin-panel/Dockerfile.fixed
             echo "RUN NODE_OPTIONS='--max_old_space_size=4096' npm run build" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
+            
             echo "# Production image" >> admin-panel/Dockerfile.fixed
             echo "FROM node:20-alpine AS runner" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
@@ -1215,28 +1220,46 @@ jobs:
             echo "" >> admin-panel/Dockerfile.fixed
             echo "# Set runtime environment variables" >> admin-panel/Dockerfile.fixed
             echo "ENV NODE_ENV=production" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_TELEMETRY_DISABLED=1" >> admin-panel/Dockerfile.fixed
             echo "ENV NEXT_PUBLIC_SUPABASE_URL=\"\${NEXT_PUBLIC_SUPABASE_URL}\"" >> admin-panel/Dockerfile.fixed
             echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\"\${NEXT_PUBLIC_SUPABASE_ANON_KEY}\"" >> admin-panel/Dockerfile.fixed
             echo "ENV NEXT_PUBLIC_API_URL=\"\${NEXT_PUBLIC_API_URL}\"" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            echo "# Copy necessary files from builder stage" >> admin-panel/Dockerfile.fixed
-            echo "COPY --from=builder /app/next.config.js ./" >> admin-panel/Dockerfile.fixed
-            echo "COPY --from=builder /app/public ./public" >> admin-panel/Dockerfile.fixed
-            echo "COPY --from=builder /app/.next ./.next" >> admin-panel/Dockerfile.fixed
-            echo "COPY --from=builder /app/node_modules ./node_modules" >> admin-panel/Dockerfile.fixed
-            echo "COPY --from=builder /app/package.json ./package.json" >> admin-panel/Dockerfile.fixed
-            echo "COPY --from=builder /app/.env* ./" >> admin-panel/Dockerfile.fixed
+            
+            echo "# Create a non-root user for security" >> admin-panel/Dockerfile.fixed
+            echo "RUN addgroup --system --gid 1001 nodejs" >> admin-panel/Dockerfile.fixed
+            echo "RUN adduser --system --uid 1001 nextjs" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            echo "# Expose port" >> admin-panel/Dockerfile.fixed
+            
+            echo "# Copy the standalone output from the builder stage" >> admin-panel/Dockerfile.fixed
+            echo "COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone/ ./" >> admin-panel/Dockerfile.fixed
+            echo "COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static" >> admin-panel/Dockerfile.fixed
+            echo "COPY --from=builder --chown=nextjs:nodejs /app/public ./public" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            
+            echo "# Set the proper permissions" >> admin-panel/Dockerfile.fixed
+            echo "RUN chmod -R 755 ./.next" >> admin-panel/Dockerfile.fixed
+            echo "USER nextjs" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            
+            echo "# Expose the port" >> admin-panel/Dockerfile.fixed
             echo "EXPOSE 3000" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            echo "# Health check" >> admin-panel/Dockerfile.fixed
-            echo "HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -qO- http://localhost:3000 || exit 1" >> admin-panel/Dockerfile.fixed
+            
+            echo "# Add a health check" >> admin-panel/Dockerfile.fixed
+            echo "HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 CMD wget -qO- http://localhost:3000/ || exit 1" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            echo "# Start the application" >> admin-panel/Dockerfile.fixed
-            echo "CMD [\"npm\", \"start\"]" >> admin-panel/Dockerfile.fixed
+            
+            echo "# Start the Next.js application" >> admin-panel/Dockerfile.fixed
+            echo "CMD [\"node\", \"server.js\"]" >> admin-panel/Dockerfile.fixed
+            
+            echo "EOF" >> admin-panel/Dockerfile.fixed
 
             echo "Created custom Dockerfile at admin-panel/Dockerfile.fixed"
+            
+            # Debug: Print the Dockerfile content
+            echo "Debug: Contents of generated Dockerfile.fixed:"
+            cat admin-panel/Dockerfile.fixed
             
             # 5. Build the admin panel with the specialized Dockerfile
             echo "Building admin panel with specialized Dockerfile..."

@@ -1253,7 +1253,6 @@ jobs:
             echo "# Start the Next.js application" >> admin-panel/Dockerfile.fixed
             echo "CMD [\"node\", \"server.js\"]" >> admin-panel/Dockerfile.fixed
             
-            echo "EOF" >> admin-panel/Dockerfile.fixed
 
             echo "Created custom Dockerfile at admin-panel/Dockerfile.fixed"
             

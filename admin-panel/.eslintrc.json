@@ -1,0 +1,14 @@
+{
+  "extends": "next/core-web-vitals",
+  "rules": {
+    "import/order": "off",
+    "@typescript-eslint/consistent-type-imports": "off",
+    "@typescript-eslint/no-unused-vars": "warn",
+    "@typescript-eslint/no-explicit-any": "off",
+    "tailwindcss/classnames-order": "off",
+    "tailwindcss/migration-from-tailwind-2": "off",
+    "tailwindcss/enforces-shorthand": "off",
+    "jsx-a11y/click-events-have-key-events": "off",
+    "jsx-a11y/no-static-element-interactions": "off"
+  }
+} 

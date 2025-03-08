@@ -1,13 +1,9 @@
-FROM node:20-alpine
-
-# Create non-root user for security
-RUN addgroup -S nodeapp && \
-    adduser -S -G nodeapp nodeapp
-
-WORKDIR /app
+FROM node:20-alpine AS build
 
 # Install system dependencies
 RUN apk --no-cache add wget curl
+
+WORKDIR /app
 
 # Copy package files to leverage Docker's caching
 COPY package*.json ./
@@ -16,12 +12,28 @@ COPY package*.json ./
 RUN npm install --omit=dev && \
     npm cache clean --force
 
-# Copy application code (exclude development files)
-COPY --chown=nodeapp:nodeapp . .
+# Copy application code
+COPY . .
+
+# Production stage - multi-stage build to reduce final image size
+FROM node:20-alpine AS production
+
+# Create non-root user for security
+RUN addgroup -S nodeapp && \
+    adduser -S -G nodeapp nodeapp && \
+    apk --no-cache add wget curl
+
+WORKDIR /app
+
+# Copy only the necessary files from the build stage
+COPY --from=build /app/package.json .
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/src ./src
 
 # Create logs directory with proper permissions
 RUN mkdir -p logs && \
-    chown -R nodeapp:nodeapp logs
+    chown -R nodeapp:nodeapp logs && \
+    chown -R nodeapp:nodeapp .
 
 # Switch to non-root user for security
 USER nodeapp

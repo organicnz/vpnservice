@@ -48,7 +48,8 @@ const nextConfig = {
   experimental: {
     // Disable static generation for app pages
     appDir: true,
-    serverComponentsExternalPackages: ['@supabase/supabase-js'],
+    serverComponentsExternalPackages: ['@supabase/supabase-js', 'next'],
+    esmExternals: 'loose',
   },
   
   // Enable SWC transpilation for styled-components
@@ -62,6 +63,16 @@ const nextConfig = {
   // Enable server actions for form submissions
   serverActions: {
     enabled: true,
+  },
+
+  webpack: (config, { isServer }) => {
+    // Fix for module resolution errors
+    if (isServer) {
+      config.resolve.alias['private-next-rsc-mod-ref-proxy'] = require.resolve('next/dist/build/webpack/loaders/next-flight-loader/module-proxy');
+      config.resolve.alias['react-server-dom-webpack/static.edge'] = require.resolve('react-server-dom-webpack/client.edge');
+      config.resolve.alias['react-server-dom-webpack/server.edge'] = require.resolve('react-server-dom-webpack/server.edge');
+    }
+    return config;
   },
 };
 

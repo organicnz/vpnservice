@@ -1149,9 +1149,7 @@ jobs:
 
             # Add a command to bypass ESLint errors during build
             echo "# Modify package.json to ignore ESLint errors during build" >> admin-panel/Dockerfile.fixed
-            echo "RUN if grep -q '\"build\"' package.json; then" >> admin-panel/Dockerfile.fixed
-            echo "    sed -i 's/\"build\": \"next build\"/\"build\": \"ESLINT_NO_DEV_ERRORS=true NEXT_IGNORE_ESLINT=1 next build\"/' package.json" >> admin-panel/Dockerfile.fixed
-            echo "fi" >> admin-panel/Dockerfile.fixed
+            echo "RUN if grep -q '\"build\"' package.json; then sed -i 's/\"build\": \"next build\"/\"build\": \"ESLINT_NO_DEV_ERRORS=true NEXT_IGNORE_ESLINT=1 next build\"/' package.json; fi" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
 
             # Add a temporary next.config.js to enable server-side rendering - fixed version

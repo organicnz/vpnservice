@@ -88,14 +88,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Set up SSH
         uses: shimataro/ssh-key-action@v2
         with:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           if_key_exists: fail
-      
+
       - name: Execute Consolidated Admin Panel Fix
         id: fix_admin
         env:
@@ -159,12 +159,11 @@ jobs:
             
             # 6. Create environment files with correct values from GitHub secrets
             echo "Creating environment files..."
-            cat > .admin-fix/.env << 'EOF'
-# Next.js environment variables
-NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY
-NEXT_PUBLIC_API_URL=http://backend:3000
-EOF
+            mkdir -p .admin-fix
+            echo "# Next.js environment variables" > .admin-fix/.env
+            echo "NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .admin-fix/.env
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY" >> .admin-fix/.env
+            echo "NEXT_PUBLIC_API_URL=http://backend:3000" >> .admin-fix/.env
             
             # Create copies for all possible Next.js env file locations
             cp .admin-fix/.env .admin-fix/.env.local
@@ -172,6 +171,7 @@ EOF
             cp .admin-fix/.env .admin-fix/.env.production.local
             
             # Also create files directly in the admin-panel directory
+            mkdir -p admin-panel
             cp .admin-fix/.env admin-panel/.env.local
             
             # 7. Update the main .env file
@@ -191,21 +191,19 @@ EOF
               echo "Updated .env file with correct values"
             else
               # Create new .env if it doesn't exist
-              cat > .env << 'EOF'
-# Basic configuration
-NODE_ENV=production
-TIMEZONE=UTC
-SECURITY_PANEL_ENFORCE_HTTPS=false
-
-# Supabase configuration
-SUPABASE_URL=$SUPABASE_URL
-SUPABASE_KEY=$SUPABASE_KEY
-
-# Next.js admin panel configuration
-NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY
-NEXT_PUBLIC_API_URL=http://backend:3000
-EOF
+              echo "# Basic configuration" > .env
+              echo "NODE_ENV=production" >> .env
+              echo "TIMEZONE=UTC" >> .env
+              echo "SECURITY_PANEL_ENFORCE_HTTPS=false" >> .env
+              echo "" >> .env
+              echo "# Supabase configuration" >> .env
+              echo "SUPABASE_URL=$SUPABASE_URL" >> .env
+              echo "SUPABASE_KEY=$SUPABASE_KEY" >> .env
+              echo "" >> .env
+              echo "# Next.js admin panel configuration" >> .env
+              echo "NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .env
+              echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY" >> .env
+              echo "NEXT_PUBLIC_API_URL=http://backend:3000" >> .env
               echo "Created new .env file with correct values"
             fi
             echo "::endgroup::"
@@ -271,72 +269,70 @@ EOF
             echo "Creating optimized Dockerfile for Next.js..."
             mkdir -p .admin-fix
             
-            cat > .admin-fix/Dockerfile << EOF
-            FROM node:20-alpine AS builder
+            # Create Dockerfile using echo commands instead of heredoc
+            echo "FROM node:20-alpine AS builder" > .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "WORKDIR /app" >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "# Set build arguments and environment variables" >> .admin-fix/Dockerfile
+            echo "ARG NEXT_PUBLIC_SUPABASE_URL=\"$SUPABASE_URL\"" >> .admin-fix/Dockerfile
+            echo "ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=\"$SUPABASE_KEY\"" >> .admin-fix/Dockerfile
+            echo "ARG NEXT_PUBLIC_API_URL=\"http://backend:3000\"" >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "ENV NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}" >> .admin-fix/Dockerfile
+            echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\${NEXT_PUBLIC_SUPABASE_ANON_KEY}" >> .admin-fix/Dockerfile
+            echo "ENV NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}" >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "# Copy package files" >> .admin-fix/Dockerfile
+            echo "COPY package*.json ./" >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "# Install dependencies" >> .admin-fix/Dockerfile
+            echo "RUN npm ci || npm install" >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "# Copy the rest of the app" >> .admin-fix/Dockerfile
+            echo "COPY . ." >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "# Print environment variables for debugging" >> .admin-fix/Dockerfile
+            echo "RUN echo \"Building with NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}\"" >> .admin-fix/Dockerfile
+            echo "RUN echo \"Building with NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}\"" >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "# Create env files explicitly at build time" >> .admin-fix/Dockerfile
+            echo "RUN echo \"NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}\" > .env" >> .admin-fix/Dockerfile
+            echo "RUN echo \"NEXT_PUBLIC_SUPABASE_ANON_KEY=\${NEXT_PUBLIC_SUPABASE_ANON_KEY}\" >> .env" >> .admin-fix/Dockerfile
+            echo "RUN echo \"NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}\" >> .env" >> .admin-fix/Dockerfile
+            echo "RUN cp .env .env.local" >> .admin-fix/Dockerfile
+            echo "RUN cp .env .env.production" >> .admin-fix/Dockerfile
+            echo "RUN cp .env .env.production.local" >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "# Build the app" >> .admin-fix/Dockerfile
+            echo "RUN npm run build" >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "# Production image" >> .admin-fix/Dockerfile
+            echo "FROM node:20-alpine AS runner" >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "# Set production environment variables" >> .admin-fix/Dockerfile
+            echo "ENV NODE_ENV=production" >> .admin-fix/Dockerfile
+            echo "ENV NEXT_PUBLIC_SUPABASE_URL=\"\${NEXT_PUBLIC_SUPABASE_URL}\"" >> .admin-fix/Dockerfile
+            echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\"\${NEXT_PUBLIC_SUPABASE_ANON_KEY}\"" >> .admin-fix/Dockerfile
+            echo "ENV NEXT_PUBLIC_API_URL=\"\${NEXT_PUBLIC_API_URL}\"" >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "# Copy necessary files from builder stage" >> .admin-fix/Dockerfile
+            echo "COPY --from=builder /app/next.config.js ./" >> .admin-fix/Dockerfile
+            echo "COPY --from=builder /app/public ./public" >> .admin-fix/Dockerfile
+            echo "COPY --from=builder /app/.next ./.next" >> .admin-fix/Dockerfile
+            echo "COPY --from=builder /app/node_modules ./node_modules" >> .admin-fix/Dockerfile
+            echo "COPY --from=builder /app/package.json ./package.json" >> .admin-fix/Dockerfile
+            echo "COPY --from=builder /app/.env* ./" >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "# Expose port" >> .admin-fix/Dockerfile
+            echo "EXPOSE 3000" >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "# Health check" >> .admin-fix/Dockerfile
+            echo "HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -qO- http://localhost:3000 || exit 1" >> .admin-fix/Dockerfile
+            echo "" >> .admin-fix/Dockerfile
+            echo "# Run the app" >> .admin-fix/Dockerfile
+            echo "CMD [\"npm\", \"start\"]" >> .admin-fix/Dockerfile
             
-            WORKDIR /app
-            
-            # Set build arguments and environment variables
-            ARG NEXT_PUBLIC_SUPABASE_URL="$SUPABASE_URL"
-            ARG NEXT_PUBLIC_SUPABASE_ANON_KEY="$SUPABASE_KEY"
-            ARG NEXT_PUBLIC_API_URL="http://backend:3000"
-            
-            ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-            ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-            ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-            
-            # Copy package files
-            COPY package*.json ./
-            
-            # Install dependencies
-            RUN npm ci || npm install
-            
-            # Copy the rest of the app
-            COPY . .
-            
-            # Print environment variables for debugging
-            RUN echo "Building with NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}"
-            RUN echo "Building with NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}"
-            
-            # Create env files explicitly at build time
-            RUN echo "NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}" > .env
-            RUN echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}" >> .env
-            RUN echo "NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}" >> .env
-            RUN cp .env .env.local
-            RUN cp .env .env.production
-            RUN cp .env .env.production.local
-            
-            # Build the app
-            RUN npm run build
-            
-            # Production image
-            FROM node:20-alpine AS runner
-            
-            WORKDIR /app
-            
-            # Set production environment variables
-            ENV NODE_ENV=production
-            ENV NEXT_PUBLIC_SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL}"
-            ENV NEXT_PUBLIC_SUPABASE_ANON_KEY="${NEXT_PUBLIC_SUPABASE_ANON_KEY}"
-            ENV NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL}"
-            
-            # Copy necessary files from builder stage
-            COPY --from=builder /app/next.config.js ./
-            COPY --from=builder /app/public ./public
-            COPY --from=builder /app/.next ./.next
-            COPY --from=builder /app/node_modules ./node_modules
-            COPY --from=builder /app/package.json ./package.json
-            COPY --from=builder /app/.env* ./
-            
-            # Expose port
-            EXPOSE 3000
-            
-            # Health check
-            HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -qO- http://localhost:3000 || exit 1
-            
-            # Run the app
-            CMD ["npm", "start"]
-            EOF
             echo "Created custom Dockerfile at .admin-fix/Dockerfile"
             
             # 10. Determine if we should update docker-compose.yml to use the custom Dockerfile
@@ -712,7 +708,7 @@ EOF
             $DOCKER_COMPOSE_CMD build || {
               echo "⚠️ Build issues encountered"
               echo "Detailed build logs:"
-              $DOCKER_COMPOSE_CMD build --no-cache --progress=plain
+              $DOCKER_COMPOSE_CMD build --no-cache
               echo "Continuing despite build issues"
             }
             
@@ -886,7 +882,7 @@ EOF
             NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
             NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
             NEXT_PUBLIC_API_URL=http://backend:3000
-            EOF
+EOF
                 echo "Created new .env file with required variables"
               fi
               
@@ -1040,6 +1036,7 @@ EOF
           echo "::endgroup::"
           
           echo "Executing Integrated Admin Panel Fix remotely..."
+          # Using a variable to hold SSH command output
           RESULT=$(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
             cd ~/dev/vpnservice
             
@@ -1067,12 +1064,10 @@ EOF
             # 3. Create explicit Next.js environment files in the admin-panel directory
             echo "Creating Next.js environment files..."
             mkdir -p admin-panel
-            cat > admin-panel/.env << 'EOF'
-            # Next.js runtime environment variables
-            NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
-            NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
-            NEXT_PUBLIC_API_URL=${API_URL}
-EOF
+            echo "# Next.js runtime environment variables" > admin-panel/.env
+            echo "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" >> admin-panel/.env
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}" >> admin-panel/.env
+            echo "NEXT_PUBLIC_API_URL=${API_URL}" >> admin-panel/.env
             
             # Create all variations of Next.js environment files
             cp admin-panel/.env admin-panel/.env.local
@@ -1083,77 +1078,77 @@ EOF
             
             # 4. Create a custom Dockerfile that ensures proper Next.js environment variable handling
             echo "Creating optimized Next.js Dockerfile..."
-            cat > admin-panel/Dockerfile.fixed << 'EOF'
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-# Set build arguments and environment variables explicitly
-ARG NEXT_PUBLIC_SUPABASE_URL="${SUPABASE_URL}"
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY="${SUPABASE_KEY}"
-ARG NEXT_PUBLIC_API_URL="${API_URL}"
-
-ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-
-# Copy package files first for better cache utilization
-COPY package.json package-lock.json* ./
-
-# Install dependencies
-RUN npm ci || npm install
-
-# Copy application code
-COPY . .
-
-# Debug: Print environment variables to verify they're set at build time
-RUN echo "Building with NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}"
-RUN echo "Building with NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:0:10}..."
-RUN echo "Building with NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}"
-
-# Create env files explicitly at build time
-RUN echo "NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}" > .env
-RUN echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}" >> .env
-RUN echo "NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}" >> .env
-RUN cp .env .env.local
-RUN cp .env .env.production
-RUN cp .env .env.production.local
-
-# Force Next.js to use production mode
-ENV NODE_ENV=production
-
-# Build the app with the environment variables
-RUN npm run build
-
-# Production image
-FROM node:20-alpine AS runner
-
-WORKDIR /app
-
-# Set runtime environment variables
-ENV NODE_ENV=production
-ENV NEXT_PUBLIC_SUPABASE_URL="${SUPABASE_URL}"
-ENV NEXT_PUBLIC_SUPABASE_ANON_KEY="${SUPABASE_KEY}"
-ENV NEXT_PUBLIC_API_URL="${API_URL}"
-
-# Copy necessary files from builder stage
-COPY --from=builder /app/next.config.js ./
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/.env* ./
-
-# Expose port
-EXPOSE 3000
-
-# Add health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:3000 || exit 1
-
-# Start the application
-CMD ["npm", "start"]
-EOF
+            
+            # Create Dockerfile using echo commands
+            echo "FROM node:20-alpine AS builder" > admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "WORKDIR /app" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Set build arguments and environment variables explicitly" >> admin-panel/Dockerfile.fixed
+            echo "ARG NEXT_PUBLIC_SUPABASE_URL=\"\${SUPABASE_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=\"\${SUPABASE_KEY}\"" >> admin-panel/Dockerfile.fixed
+            echo "ARG NEXT_PUBLIC_API_URL=\"\${API_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\${NEXT_PUBLIC_SUPABASE_ANON_KEY}" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Copy package files first for better cache utilization" >> admin-panel/Dockerfile.fixed
+            echo "COPY package.json package-lock.json* ./" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Install dependencies" >> admin-panel/Dockerfile.fixed
+            echo "RUN npm ci || npm install" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Copy application code" >> admin-panel/Dockerfile.fixed
+            echo "COPY . ." >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Debug: Print environment variables to verify they're set at build time" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"Building with NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"Building with NEXT_PUBLIC_SUPABASE_ANON_KEY=\${NEXT_PUBLIC_SUPABASE_ANON_KEY:0:10}...\"" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"Building with NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Create env files explicitly at build time" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}\" > .env" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"NEXT_PUBLIC_SUPABASE_ANON_KEY=\${NEXT_PUBLIC_SUPABASE_ANON_KEY}\" >> .env" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}\" >> .env" >> admin-panel/Dockerfile.fixed
+            echo "RUN cp .env .env.local" >> admin-panel/Dockerfile.fixed
+            echo "RUN cp .env .env.production" >> admin-panel/Dockerfile.fixed
+            echo "RUN cp .env .env.production.local" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Force Next.js to use production mode" >> admin-panel/Dockerfile.fixed
+            echo "ENV NODE_ENV=production" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Build the app with the environment variables" >> admin-panel/Dockerfile.fixed
+            echo "RUN npm run build" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Production image" >> admin-panel/Dockerfile.fixed
+            echo "FROM node:20-alpine AS runner" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "WORKDIR /app" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Set runtime environment variables" >> admin-panel/Dockerfile.fixed
+            echo "ENV NODE_ENV=production" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_SUPABASE_URL=\"\${SUPABASE_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\"\${SUPABASE_KEY}\"" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_API_URL=\"\${API_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Copy necessary files from builder stage" >> admin-panel/Dockerfile.fixed
+            echo "COPY --from=builder /app/next.config.js ./" >> admin-panel/Dockerfile.fixed
+            echo "COPY --from=builder /app/public ./public" >> admin-panel/Dockerfile.fixed
+            echo "COPY --from=builder /app/.next ./.next" >> admin-panel/Dockerfile.fixed
+            echo "COPY --from=builder /app/node_modules ./node_modules" >> admin-panel/Dockerfile.fixed
+            echo "COPY --from=builder /app/package.json ./package.json" >> admin-panel/Dockerfile.fixed
+            echo "COPY --from=builder /app/.env* ./" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Expose port" >> admin-panel/Dockerfile.fixed
+            echo "EXPOSE 3000" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Add health check" >> admin-panel/Dockerfile.fixed
+            echo "HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \\" >> admin-panel/Dockerfile.fixed
+            echo "  CMD wget -qO- http://localhost:3000 || exit 1" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+            echo "# Start the application" >> admin-panel/Dockerfile.fixed
+            echo "CMD [\"npm\", \"start\"]" >> admin-panel/Dockerfile.fixed
             
             echo "Created custom Dockerfile at admin-panel/Dockerfile.fixed"
             
@@ -1236,7 +1231,7 @@ EOF
             
             echo "===== Admin Panel Fix Complete ====="
             exit 0
-ENDSSH
+          ENDSSH
           )
           
           echo "$RESULT"

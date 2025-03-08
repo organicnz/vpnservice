@@ -1119,6 +1119,7 @@ jobs:
             # Add these new lines to install specific versions of dependencies
             echo "# Install additional dependencies to fix module resolution" >> admin-panel/Dockerfile.fixed
             echo "RUN npm install --no-save next@latest react@latest react-dom@latest" >> admin-panel/Dockerfile.fixed
+            echo "RUN npm install --no-save react-server-dom-webpack@latest" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
 
             echo "# Add a temporary next.config.js to enable server-side rendering" >> admin-panel/Dockerfile.fixed
@@ -1130,17 +1131,22 @@ jobs:
             echo "RUN echo \"  experimental: {\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"    serverComponentsExternalPackages: ['next'],\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"    esmExternals: 'loose',\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"    serverActions: true,\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"    serverComponents: true,\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"  },\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"  webpack: (config, { isServer }) => {\" >> next.config.js" >> admin-panel/Dockerfile.fixed
-            echo "RUN echo \"    // Fix for the 'private-next-rsc-mod-ref-proxy' error\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"    // Fix for module resolution errors\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"    if (isServer) {\" >> next.config.js" >> admin-panel/Dockerfile.fixed
-            echo "RUN echo \"      config.resolve.alias['private-next-rsc-mod-ref-proxy'] = require.resolve('next/dist/build/webpack/loaders/next-flight-loader/module-proxy')\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"      config.resolve.alias['private-next-rsc-mod-ref-proxy'] = require.resolve('next/dist/build/webpack/loaders/next-flight-loader/module-proxy');\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"      config.resolve.alias['react-server-dom-webpack/static.edge'] = require.resolve('react-server-dom-webpack/client.edge');\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"      config.resolve.alias['react-server-dom-webpack/server.edge'] = require.resolve('react-server-dom-webpack/server.edge');\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"    }\" >> next.config.js" >> admin-panel/Dockerfile.fixed
-            echo "RUN echo \"    return config\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"    return config;\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"  },\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"};\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"module.exports = nextConfig;\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
+
             echo "# Set NODE_ENV for build" >> admin-panel/Dockerfile.fixed
             echo "ENV NODE_ENV=production" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed

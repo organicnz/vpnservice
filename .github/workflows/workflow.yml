@@ -332,7 +332,7 @@ jobs:
             echo "# Health check" >> .admin-fix/Dockerfile
             echo "HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -qO- http://localhost:3000 || exit 1" >> .admin-fix/Dockerfile
             echo "" >> .admin-fix/Dockerfile
-            echo "# Run the app" >> .admin-fix/Dockerfile
+            echo "# Start the application" >> .admin-fix/Dockerfile
             echo "CMD [\"npm\", \"start\"]" >> .admin-fix/Dockerfile
             
             echo "Created custom Dockerfile at .admin-fix/Dockerfile"
@@ -351,7 +351,7 @@ jobs:
             
             # Check which version of docker-compose is available
             DOCKER_COMPOSE_CMD="docker compose"
-            if command -v docker-compose > /dev/null 2>&1; then
+            if command -v docker-compose &> /dev/null; then
               DOCKER_COMPOSE_CMD="docker-compose"
               echo "Using docker-compose command"
             else
@@ -1115,6 +1115,13 @@ jobs:
             echo "RUN cp .env .env.production" >> admin-panel/Dockerfile.fixed
             echo "RUN cp .env .env.production.local" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
+
+            # Add these new lines to install specific versions of dependencies
+            echo "# Install additional dependencies to fix module resolution" >> admin-panel/Dockerfile.fixed
+            echo "RUN npm install --no-save next@latest react@latest react-dom@latest" >> admin-panel/Dockerfile.fixed
+            echo "RUN npm install --no-save private-next-rsc-mod-ref-proxy" >> admin-panel/Dockerfile.fixed
+            echo "" >> admin-panel/Dockerfile.fixed
+
             echo "# Add a temporary next.config.js to enable server-side rendering" >> admin-panel/Dockerfile.fixed
             echo "RUN if [ -f \"next.config.js\" ]; then cp next.config.js next.config.js.bak; fi" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"/** @type {import('next').NextConfig} */\" > next.config.js" >> admin-panel/Dockerfile.fixed
@@ -1123,26 +1130,34 @@ jobs:
             echo "RUN echo \"  images: { unoptimized: true },\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"  experimental: {\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"    serverComponentsExternalPackages: ['next'],\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"    esmExternals: 'loose',\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"  },\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"  webpack: (config, { isServer }) => {\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"    // Fix for the 'private-next-rsc-mod-ref-proxy' error\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"    if (isServer) {\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"      config.resolve.alias['private-next-rsc-mod-ref-proxy'] = require.resolve('next/dist/build/webpack/loaders/next-flight-loader/module-proxy')\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"    }\" >> next.config.js" >> admin-panel/Dockerfile.fixed
+            echo "RUN echo \"    return config\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"  },\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"};\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "RUN echo \"module.exports = nextConfig;\" >> next.config.js" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            echo "# Force Next.js to use production mode" >> admin-panel/Dockerfile.fixed
+            echo "# Set NODE_ENV for build" >> admin-panel/Dockerfile.fixed
             echo "ENV NODE_ENV=production" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            echo "# Build the app with the environment variables" >> admin-panel/Dockerfile.fixed
-            echo "RUN npm run build" >> admin-panel/Dockerfile.fixed
+            echo "# Build the app with additional memory" >> admin-panel/Dockerfile.fixed
+            echo "RUN NODE_OPTIONS='--max_old_space_size=4096' npm run build" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
             echo "# Production image" >> admin-panel/Dockerfile.fixed
             echo "FROM node:20-alpine AS runner" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
             echo "WORKDIR /app" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            echo "# Set runtime environment variables with actual values" >> admin-panel/Dockerfile.fixed
+            echo "# Set runtime environment variables" >> admin-panel/Dockerfile.fixed
             echo "ENV NODE_ENV=production" >> admin-panel/Dockerfile.fixed
-            echo "ENV NEXT_PUBLIC_SUPABASE_URL=\"${SUPABASE_URL}\"" >> admin-panel/Dockerfile.fixed
-            echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\"${SUPABASE_KEY}\"" >> admin-panel/Dockerfile.fixed
-            echo "ENV NEXT_PUBLIC_API_URL=\"${API_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_SUPABASE_URL=\"\${NEXT_PUBLIC_SUPABASE_URL}\"" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\"\${NEXT_PUBLIC_SUPABASE_ANON_KEY}\"" >> admin-panel/Dockerfile.fixed
+            echo "ENV NEXT_PUBLIC_API_URL=\"\${NEXT_PUBLIC_API_URL}\"" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
             echo "# Copy necessary files from builder stage" >> admin-panel/Dockerfile.fixed
             echo "COPY --from=builder /app/next.config.js ./" >> admin-panel/Dockerfile.fixed
@@ -1155,12 +1170,12 @@ jobs:
             echo "# Expose port" >> admin-panel/Dockerfile.fixed
             echo "EXPOSE 3000" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            echo "# Add health check" >> admin-panel/Dockerfile.fixed
+            echo "# Health check" >> admin-panel/Dockerfile.fixed
             echo "HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -qO- http://localhost:3000 || exit 1" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
             echo "# Start the application" >> admin-panel/Dockerfile.fixed
             echo "CMD [\"npm\", \"start\"]" >> admin-panel/Dockerfile.fixed
-            
+
             echo "Created custom Dockerfile at admin-panel/Dockerfile.fixed"
             
             # 5. Build the admin panel with the specialized Dockerfile

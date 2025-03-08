@@ -39,7 +39,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: '**/package-lock.json'
+          cache-dependency-path: ${{ matrix.component }}/package-lock.json
 
       - name: Install dependencies
         run: npm ci || npm install
@@ -1253,7 +1253,6 @@ jobs:
             echo "# Start the Next.js application" >> admin-panel/Dockerfile.fixed
             echo "CMD [\"node\", \"server.js\"]" >> admin-panel/Dockerfile.fixed
 
-
             echo "Created custom Dockerfile at admin-panel/Dockerfile.fixed"
 
             # Debug: Print the Dockerfile content
@@ -1266,7 +1265,21 @@ jobs:
               echo "ERROR: Failed to build admin panel image"
               exit 1
             }
-
+            
+            # Add verification to check for server.js
+            echo "Creating a temporary container to verify the build output..."
+            TEMP_CONTAINER_ID=$(docker create vpn-admin-fixed:latest)
+            docker cp $TEMP_CONTAINER_ID:/app/server.js /tmp/server.js.check 2>/dev/null
+            if [ -f "/tmp/server.js.check" ]; then
+              echo "✅ server.js exists in the standalone output"
+              rm /tmp/server.js.check
+            else
+              echo "⚠️ server.js not found in the standalone output"
+              echo "Container contents in /app directory:"
+              docker exec $TEMP_CONTAINER_ID ls -la /app || echo "Could not list /app contents"
+            fi
+            docker rm $TEMP_CONTAINER_ID > /dev/null
+            
             # 6. Determine the network to use
             echo "Finding network for container..."
             NETWORK_NAME=$(docker network ls | grep vpn | head -1 | awk '{print $2}')
@@ -1341,14 +1354,19 @@ jobs:
             exit 0
           ENDSSH
           )
-
+          
+          # Store the exit code from the SSH command
+          SSH_EXIT_CODE=$?
+          
+          # Output the result for debugging
           echo "$RESULT"
-
-          # Check if the fix was successful
-          if [[ $? -eq 0 ]]; then
+          
+          # Check if the fix was successful based on exit code
+          if [[ $SSH_EXIT_CODE -eq 0 ]]; then
             echo "integrated_fix_successful=true" >> $GITHUB_OUTPUT
           else
             echo "integrated_fix_successful=false" >> $GITHUB_OUTPUT
+            echo "::error::Admin panel fix failed with exit code $SSH_EXIT_CODE"
           fi
 
       - name: Fix Report

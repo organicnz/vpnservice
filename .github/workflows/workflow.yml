@@ -1119,7 +1119,7 @@ jobs:
             # Add these new lines to install specific versions of dependencies
             echo "# Install additional dependencies to fix module resolution" >> admin-panel/Dockerfile.fixed
             echo "RUN npm install --no-save next@latest react@latest react-dom@latest" >> admin-panel/Dockerfile.fixed
-            echo "RUN npm install --no-save react-server-dom-webpack@latest" >> admin-panel/Dockerfile.fixed
+            echo "RUN npm install --no-save --legacy-peer-deps react-server-dom-webpack" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
 
             echo "# Add a temporary next.config.js to enable server-side rendering" >> admin-panel/Dockerfile.fixed

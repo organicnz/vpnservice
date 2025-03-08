@@ -29,24 +29,24 @@ jobs:
     defaults:
       run:
         working-directory: ./${{ matrix.component }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: '**/package-lock.json'
-      
+
       - name: Install dependencies
         run: npm ci || npm install
-      
+
       - name: Run linting
         run: npm run lint || echo "⚠️ Linting issues found, but continuing build"
-      
+
       - name: Check for security vulnerabilities
         run: npm audit --production --audit-level=high || echo "⚠️ Security vulnerabilities found, please review"
 
@@ -55,16 +55,16 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     needs: [lint]
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           buildkitd-flags: --debug
-      
+
       - name: Cache Docker layers
         uses: actions/cache@v4
         with:
@@ -72,7 +72,7 @@ jobs:
           key: ${{ runner.os }}-buildx-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-buildx-
-      
+
       - name: Build backend image
         uses: docker/build-push-action@v5
         with:
@@ -82,7 +82,7 @@ jobs:
           tags: vpnservice-backend:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
+
       - name: Build admin panel image
         uses: docker/build-push-action@v5
         with:
@@ -99,7 +99,7 @@ jobs:
     # Run on main branch push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 30
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -122,43 +122,43 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           set -o pipefail
-          
+
           echo "::group::Establishing SSH connection"
           echo "Connecting to $SERVER_IP as $SSH_USER..."
           echo "::endgroup::"
-          
+
           echo "Executing Consolidated Admin Panel Fix remotely..."
           ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
             set +e
-            
+
             cd ~/dev/vpnservice
-            
+
             echo "::group::Starting fix process"
             echo "===== Starting Comprehensive Admin Panel Fix ====="
             echo "This fix addresses all potential causes of 'Service Temporarily Unavailable' error"
             echo "::endgroup::"
-            
+
             echo "::group::Backup environment"
             # 1. Create backup of environment and configuration
             echo "Creating backup of current environment..."
             cp .env .env.backup.$(date +%Y%m%d%H%M%S) 2>/dev/null || echo "No .env file to backup"
             cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d%H%M%S) 2>/dev/null || echo "No docker-compose.yml file to backup"
             echo "::endgroup::"
-            
+
             echo "::group::Repository update"
             # 2. Ensure we have the latest code
             echo "Pulling latest code..."
             git pull origin main
             echo "::endgroup::"
-            
+
             echo "::group::Environment setup"
             # 3. Using Supabase variables from GitHub secrets
             SUPABASE_URL="${SUPABASE_URL}"
             SUPABASE_KEY="${SUPABASE_KEY}"
-            
+
             echo "Using Supabase URL: $SUPABASE_URL"
             echo "Using Supabase Key: ${SUPABASE_KEY:0:10}..." # Only show the first 10 characters for security
-            
+
             # 4. Stop and remove the admin container
             echo "Stopping and removing admin container..."
             if command -v docker-compose &> /dev/null; then
@@ -168,12 +168,12 @@ jobs:
             fi
             docker stop vpn-admin 2>/dev/null || echo "No vpn-admin container to stop"
             docker rm vpn-admin 2>/dev/null || echo "No vpn-admin container to remove"
-            
+
             # 5. Create directories for environment files
             echo "Setting up environment files with correct values..."
             mkdir -p .admin-fix
             mkdir -p admin-panel
-            
+
             # 6. Create environment files with correct values from GitHub secrets
             echo "Creating environment files..."
             mkdir -p .admin-fix
@@ -181,19 +181,19 @@ jobs:
             echo "NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .admin-fix/.env
             echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY" >> .admin-fix/.env
             echo "NEXT_PUBLIC_API_URL=http://backend:3000" >> .admin-fix/.env
-            
+
             # Create copies for all possible Next.js env file locations
             cp .admin-fix/.env .admin-fix/.env.local
             cp .admin-fix/.env .admin-fix/.env.production
             cp .admin-fix/.env .admin-fix/.env.production.local
-            
+
             # Also create files directly in the admin-panel directory
             mkdir -p admin-panel
             cp .admin-fix/.env admin-panel/.env.local
-            
+
             # 7. Update the main .env file
             echo "Updating main .env file with correct variables..."
-            
+
             # Update or add Supabase variables
             if [ -f ".env" ]; then
               # Update existing variables
@@ -201,7 +201,7 @@ jobs:
               sed -i "s|SUPABASE_KEY=.*|SUPABASE_KEY=$SUPABASE_KEY|g" .env
               sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL|g" .env
               sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY|g" .env
-              
+
               # Add if they don't exist
               grep -q "NEXT_PUBLIC_SUPABASE_URL" .env || echo "NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .env
               grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY" >> .env
@@ -223,23 +223,23 @@ jobs:
               echo "Created new .env file with required variables"
             fi
             echo "::endgroup::"
-            
+
             echo "::group::Docker Compose configuration"
             # 8. Update docker-compose.yml if it exists
             if [ -f "docker-compose.yml" ]; then
               echo "Updating docker-compose.yml..."
-              
+
               # 8.1. Update build args if they exist
               sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL|g" docker-compose.yml || echo "Could not update SUPABASE_URL in docker-compose.yml"
               sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY|g" docker-compose.yml || echo "Could not update SUPABASE_KEY in docker-compose.yml"
-              
+
               # 8.2. Add volumes for environment files
               # Check if volumes section already exists for admin service
               if grep -q "admin:.*volumes:" docker-compose.yml -A 5; then
                 echo "Volumes section exists, updating it..."
                 # Remove existing environment file mounts if they exist
                 sed -i '/\.\(admin-panel-env\|admin-fix\)/d' docker-compose.yml || echo "Could not remove existing volume mounts"
-                
+
                 # Find the line number where the volumes section is for the admin service
                 ADMIN_VOL_LINE=$(grep -n "admin:.*volumes:" docker-compose.yml | cut -d: -f1)
                 if [ -n "$ADMIN_VOL_LINE" ]; then
@@ -264,7 +264,7 @@ jobs:
                   echo "Admin service section not found in docker-compose.yml"
                 fi
               fi
-              
+
               # Also add environment section if it doesn't exist
               if ! grep -q "admin:.*environment:" docker-compose.yml -A 5; then
                 ADMIN_LINE=$(grep -n "container_name: vpn-admin" docker-compose.yml | cut -d: -f1)
@@ -279,12 +279,12 @@ jobs:
               echo "No docker-compose.yml file found, skipping docker-compose.yml updates"
             fi
             echo "::endgroup::"
-            
+
             echo "::group::Custom Dockerfile"
             # 9. Create a custom Dockerfile for the admin panel
             echo "Creating optimized Dockerfile for Next.js..."
             mkdir -p .admin-fix
-            
+
             # Create Dockerfile using echo commands instead of heredoc
             echo "FROM node:20-alpine AS builder" > .admin-fix/Dockerfile
             echo "" >> .admin-fix/Dockerfile
@@ -348,9 +348,9 @@ jobs:
             echo "" >> .admin-fix/Dockerfile
             echo "# Start the application" >> .admin-fix/Dockerfile
             echo "CMD [\"npm\", \"start\"]" >> .admin-fix/Dockerfile
-            
+
             echo "Created custom Dockerfile at .admin-fix/Dockerfile"
-            
+
             # 10. Determine if we should update docker-compose.yml to use the custom Dockerfile
             if [ -f "docker-compose.yml" ] && grep -q "dockerfile: Dockerfile" docker-compose.yml; then
               echo "Updating docker-compose.yml to use custom Dockerfile..."
@@ -358,11 +358,11 @@ jobs:
               echo "Updated docker-compose.yml to use custom Dockerfile"
             fi
             echo "::endgroup::"
-            
+
             echo "::group::Container rebuild"
             # 11. Two approaches:
             echo "Rebuilding container..."
-            
+
             # Check which version of docker-compose is available
             DOCKER_COMPOSE_CMD="docker compose"
             if command -v docker-compose &> /dev/null; then
@@ -371,7 +371,7 @@ jobs:
             else
               echo "Using docker compose command"
             fi
-            
+
             # A. Use docker-compose if available
             if command -v docker-compose > /dev/null 2>&1 || docker compose version > /dev/null 2>&1; then
               echo "Rebuilding and starting with Docker Compose..."
@@ -381,14 +381,14 @@ jobs:
                 echo "Trying again with detailed output:"
                 $DOCKER_COMPOSE_CMD build --no-cache --progress=plain admin || echo "⚠️ Build failed, but continuing with existing image if available"
               }
-              
+
               echo "Starting admin container..."
               $DOCKER_COMPOSE_CMD up -d admin || {
                 echo "⚠️ Startup issues encountered"
                 echo "Checking docker-compose.yml configuration:"
                 $DOCKER_COMPOSE_CMD config
                 echo "⚠️ Startup failed, trying alternative approach"
-                
+
                 # Try to start with environment variables directly
                 echo "Attempting to start with direct environment variables..."
                 $DOCKER_COMPOSE_CMD up -d admin || echo "⚠️ All Docker Compose attempts failed"
@@ -405,7 +405,7 @@ jobs:
               else
                 echo "Using existing network: $NETWORK_NAME"
               fi
-              
+
               # Build the admin panel image
               echo "Building admin panel image..."
               docker build -t vpn-admin-fixed:latest -f .admin-fix/Dockerfile ./admin-panel || {
@@ -416,7 +416,7 @@ jobs:
                   --build-arg NEXT_PUBLIC_API_URL="http://backend:3000" \
                   ./admin-panel || echo "⚠️ All build attempts failed, but continuing with existing image if available"
               }
-              
+
               # Run the container
               echo "Starting admin panel container..."
               docker run -d \
@@ -449,25 +449,25 @@ jobs:
               }
             fi
             echo "::endgroup::"
-            
+
             echo "::group::Container status"
             # 12. Wait for container to initialize
             echo "Waiting for admin panel to initialize (45 seconds)..."
             sleep 45
-            
+
             # 13. Check container status and logs
             echo "Admin panel container status:"
             docker ps | grep vpn-admin || echo "⚠️ Container not found in running containers!"
-            
+
             echo "Admin panel logs:"
             docker logs vpn-admin 2>&1 | tail -n 50 || echo "⚠️ Could not retrieve logs"
             echo "::endgroup::"
-            
+
             echo "::group::Accessibility test"
             # 14. Test accessibility with multiple attempts
             echo "Testing admin panel accessibility..."
             SUCCESS=false
-            
+
             for i in {1..5}; do
               echo "Attempt $i..."
               HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 || echo "Failed")
@@ -484,16 +484,16 @@ jobs:
               fi
             done
             echo "::endgroup::"
-            
+
             echo "::group::Alternative approach"
             # 15. Alternative approach if still not working
             if [ "$SUCCESS" != "true" ]; then
               echo "⚠️ Still having issues. Trying alternative approach..."
-              
+
               # Stop the container
               docker stop vpn-admin
               docker rm vpn-admin
-              
+
               # Try running with a simpler setup - just the environment variables
               echo "Starting admin container with simplified approach..."
               if command -v docker-compose > /dev/null 2>&1 || docker compose version > /dev/null 2>&1; then
@@ -515,10 +515,10 @@ jobs:
                   --restart unless-stopped \
                   vpnservice-admin:latest || echo "⚠️ Could not start admin container with direct run"
               fi
-              
+
               echo "Waiting 30 seconds for the container to initialize with new configuration..."
               sleep 30
-              
+
               # Test again
               HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 || echo "Failed")
               if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "302" ]; then
@@ -531,21 +531,21 @@ jobs:
               fi
             fi
             echo "::endgroup::"
-            
+
             echo "::group::Final verification"
             # 16. Verify environment variables in container
             echo "Verifying environment variables in container:"
             docker exec vpn-admin env 2>&1 | grep NEXT_PUBLIC || echo "⚠️ Could not verify environment variables"
-            
+
             echo ""
             echo "===== Admin Panel Fix Complete ====="
             echo ""
-            
+
             echo "The admin panel should now be accessible at:"
             echo "http://localhost:8080 (on server)"
             DOMAIN=${VPN_DOMAIN:-$((curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || hostname -I | awk '{print $1}' || echo "your-server-ip"))}
             echo "http://$DOMAIN:8080 (externally)"
-            
+
             # Return success status for GitHub Actions
             if [ "$SUCCESS" = "true" ]; then
               echo "ADMIN_PANEL_FIXED=true"
@@ -553,14 +553,14 @@ jobs:
               echo "ADMIN_PANEL_FIXED=false"
             fi
           ENDSSH
-          
+
           # Capture the success status
           if grep -q "ADMIN_PANEL_FIXED=true" <<< "$RESULT"; then
             echo "admin_panel_fixed=true" >> $GITHUB_OUTPUT
           else
             echo "admin_panel_fixed=false" >> $GITHUB_OUTPUT
           fi
-      
+
       - name: Verification Summary
         run: |
           echo "## Admin Panel Fix Summary" >> $GITHUB_STEP_SUMMARY
@@ -569,7 +569,7 @@ jobs:
           echo "- **SUPABASE_URL**: ${{ secrets.SUPABASE_URL }}" >> $GITHUB_STEP_SUMMARY
           echo "- **SUPABASE_KEY**: (partially hidden for security)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           if [[ "${{ steps.fix_admin.outputs.admin_panel_fixed }}" == "true" ]]; then
             echo "### ✅ Admin Panel Fix Successful" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -580,7 +580,7 @@ jobs:
             echo "The fix script ran completely, but there may still be issues with the admin panel." >> $GITHUB_STEP_SUMMARY
             echo "Please check the logs on the server for more information." >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Multiple Approaches Used" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -609,7 +609,7 @@ jobs:
     # Run on main branch push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 20
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -632,21 +632,21 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           set -o pipefail
-          
+
           echo "::group::Establishing SSH connection"
           echo "Connecting to $SERVER_IP as $SSH_USER..."
           echo "::endgroup::"
-          
+
           ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
             set +e
-            
+
             echo "::group::Starting Deployment Process"
             echo "===== Starting Deployment Process ====="
-            
+
             # Navigate to project directory
             mkdir -p ~/dev
             cd ~/dev
-            
+
             echo "::group::Repository setup"
             if [ ! -d "vpnservice" ]; then
               echo "Cloning repository..."
@@ -671,7 +671,7 @@ jobs:
                 touch .env
                 echo "Created empty .env file"
               fi
-              
+
               # Update with GitHub secrets
               echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
               echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> .env
@@ -693,7 +693,7 @@ jobs:
               sed -i "s|SUPABASE_KEY=.*|SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}|g" .env
               sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}|g" .env
               sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY }}|g" .env
-              
+
               # Add if they don't exist
               grep -q "NEXT_PUBLIC_SUPABASE_URL" .env || echo "NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
               grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY }}" >> .env
@@ -706,7 +706,7 @@ jobs:
             echo "::group::Docker services"
             # Start or restart Docker services
             echo "Starting Docker services..."
-            
+
             # Check if docker-compose or docker compose is available
             DOCKER_COMPOSE_CMD="docker compose"
             if command -v docker-compose &> /dev/null; then
@@ -715,10 +715,10 @@ jobs:
             else
               echo "Using docker compose command"
             fi
-            
+
             echo "Stopping existing containers..."
             $DOCKER_COMPOSE_CMD down || echo "⚠️ Error stopping containers, continuing anyway"
-            
+
             echo "Building containers..."
             $DOCKER_COMPOSE_CMD build || {
               echo "⚠️ Build issues encountered"
@@ -726,7 +726,7 @@ jobs:
               $DOCKER_COMPOSE_CMD build --no-cache
               echo "Continuing despite build issues"
             }
-            
+
             echo "Starting containers..."
             $DOCKER_COMPOSE_CMD up -d || {
               echo "⚠️ Container startup issues encountered"
@@ -740,7 +740,7 @@ jobs:
             # Verify services are running
             echo "===== Deployed Services ====="
             docker ps
-            
+
             # Check for expected services
             echo "Checking if key services are running..."
             if docker ps | grep -q "vpn-admin"; then
@@ -748,20 +748,20 @@ jobs:
             else
               echo "❌ Admin panel is NOT running"
             fi
-            
+
             if docker ps | grep -q "vpn-backend"; then
               echo "✅ Backend is running"
             else
               echo "❌ Backend is NOT running"
             fi
-            
+
             if docker ps | grep -q "xray-ui"; then
               echo "✅ X-UI is running"
             else
               echo "❌ X-UI is NOT running"
             fi
             echo "::endgroup::"
-            
+
             echo "::group::Access information"
             # Print access URLs
             echo "===== Service Access Information ====="
@@ -770,21 +770,21 @@ jobs:
               DOMAIN=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || echo "localhost")
               echo "⚠️ No domain specified, using detected IP/hostname: $DOMAIN"
             fi
-            
+
             echo "VPN Admin Panel: https://$DOMAIN:54321"
             echo "Backend API: http://$DOMAIN:3000"
             echo "Admin Dashboard: http://$DOMAIN:8080"
             echo "Admin Email: ${VPN_ADMIN_EMAIL:-admin@example.com}"
             echo "::endgroup::"
-            
+
             echo "===== Deployment Complete ====="
             # Always succeed
             exit 0
           ENDSSH
-          
+
           # Set GitHub step outputs for summary
           echo "deployment_complete=true" >> $GITHUB_OUTPUT
-      
+
       - name: Deployment Summary
         if: steps.deploy.outputs.deployment_complete == 'true'
         run: |
@@ -814,20 +814,20 @@ jobs:
     # Run on main branch push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 20
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Set up SSH
         uses: shimataro/ssh-key-action@v2
         with:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           if_key_exists: fail
-      
+
       - name: Determine component to rebuild
         id: component
         run: |
@@ -835,7 +835,7 @@ jobs:
           echo "component_name=admin" >> $GITHUB_OUTPUT
           echo "container_name=vpn-admin" >> $GITHUB_OUTPUT
           echo "port=8080" >> $GITHUB_OUTPUT
-      
+
       - name: Rebuild Specific Component
         id: rebuild
         env:
@@ -847,22 +847,22 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           set -o pipefail
-          
+
           echo "::group::Establishing SSH connection"
           echo "Connecting to $SERVER_IP as $SSH_USER..."
           echo "::endgroup::"
-          
+
           echo "Rebuilding $COMPONENT component remotely..."
           ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
             set +e
-            
+
             cd ~/dev/vpnservice
-            
+
             echo "::group::Repository update"
             echo "Pulling latest changes from repository..."
             git pull origin main
             echo "::endgroup::"
-            
+
             echo "::group::Environment setup"
             # Update .env file with correct values if rebuilding admin
             if [ "$COMPONENT" = "admin" ]; then
@@ -871,13 +871,13 @@ jobs:
                 # Backup the existing .env file
                 cp .env .env.backup.$(date +%Y%m%d%H%M%S)
                 echo "Created backup of .env file"
-                
+
                 # Update existing variables
                 sed -i "s|SUPABASE_URL=.*|SUPABASE_URL=${SUPABASE_URL}|g" .env
                 sed -i "s|SUPABASE_KEY=.*|SUPABASE_KEY=${SUPABASE_KEY}|g" .env
                 sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}|g" .env
                 sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}|g" .env
-                
+
                 # Add if they don't exist
                 grep -q "NEXT_PUBLIC_SUPABASE_URL" .env || echo "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" >> .env
                 grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}" >> .env
@@ -898,13 +898,13 @@ jobs:
                 echo "NEXT_PUBLIC_API_URL=http://backend:3000" >> .env
                 echo "Created new .env file with required variables"
               fi
-              
+
               # Also update docker-compose.yml if it exists
               if [ -f "docker-compose.yml" ]; then
                 echo "Updating docker-compose.yml with correct Supabase URL..."
                 cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d%H%M%S)
                 echo "Created backup of docker-compose.yml"
-                
+
                 # Try to update build args if they exist
                 sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}|g" docker-compose.yml || true
                 sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}|g" docker-compose.yml || true
@@ -912,12 +912,12 @@ jobs:
               fi
             fi
             echo "::endgroup::"
-            
+
             echo "::group::Container rebuild"
             echo "Stopping and removing the $COMPONENT container..."
             docker stop $CONTAINER 2>/dev/null || echo "Container was not running"
             docker rm $CONTAINER 2>/dev/null || echo "Container did not exist or was already removed"
-            
+
             echo "Rebuilding $COMPONENT container..."
             # Check if docker-compose or docker compose is available
             DOCKER_COMPOSE_CMD="docker compose"
@@ -927,7 +927,7 @@ jobs:
             else
               echo "Using docker compose command"
             fi
-            
+
             # Build and start the container
             echo "Building with no cache..."
             $DOCKER_COMPOSE_CMD build --no-cache $COMPONENT || {
@@ -935,7 +935,7 @@ jobs:
               echo "Trying again with detailed output:"
               $DOCKER_COMPOSE_CMD build --no-cache --progress=plain $COMPONENT || echo "⚠️ Build failed, but continuing with existing images"
             }
-            
+
             echo "Starting container..."
             $DOCKER_COMPOSE_CMD up -d $COMPONENT || {
               echo "⚠️ Startup issues encountered"
@@ -944,24 +944,24 @@ jobs:
               echo "⚠️ Startup failed, but continuing"
             }
             echo "::endgroup::"
-            
+
             echo "::group::Container status"
             echo "Waiting for container to initialize (30 seconds)..."
             sleep 30
-            
+
             echo "Container status:"
             docker ps | grep $CONTAINER || echo "⚠️ Container not found in running containers!"
-            
+
             echo "Container logs:"
             docker logs $CONTAINER 2>&1 | tail -n 30 || echo "⚠️ Could not get container logs, it may not be running"
-            
+
             # Verify environment variables for admin panel
             if [ "$COMPONENT" = "admin" ]; then
               echo "Verifying admin panel environment variables:"
               docker exec $CONTAINER env 2>&1 | grep NEXT_PUBLIC || echo "⚠️ Could not get environment variables, container may not be running properly"
             fi
             echo "::endgroup::"
-            
+
             echo "::group::Health check"
             # Perform a simple health check
             if [ "$COMPONENT" = "admin" ]; then
@@ -978,7 +978,7 @@ jobs:
 
           # Set GitHub step outputs for summary
           echo "rebuild_complete=true" >> $GITHUB_OUTPUT
-      
+
       - name: Component Rebuild Summary
         if: steps.rebuild.outputs.rebuild_complete == 'true'
         run: |
@@ -986,7 +986,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "The ${{ steps.component.outputs.component_name }} component has been rebuilt." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           if [ "${{ steps.component.outputs.component_name }}" = "admin" ]; then
             echo "### Admin Panel Environment" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -996,7 +996,7 @@ jobs:
             echo "- **SUPABASE_KEY**: (partially hidden for security)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           echo "### Access Information" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.component.outputs.component_name }}" = "xui" ]; then
@@ -1005,14 +1005,14 @@ jobs:
           else
             echo "Component should now be accessible at:" >> $GITHUB_STEP_SUMMARY
             echo "http://${{ secrets.VPN_DOMAIN }}:${{ steps.component.outputs.port }}" >> $GITHUB_STEP_SUMMARY
-          fi 
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Troubleshooting" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "If the component is not accessible, check the logs on the server:" >> $GITHUB_STEP_SUMMARY
           echo "```bash" >> $GITHUB_STEP_SUMMARY
           echo "docker logs ${{ steps.component.outputs.container_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "```" >> $GITHUB_STEP_SUMMARY 
+          echo "```" >> $GITHUB_STEP_SUMMARY
 
   # Integrated admin panel fix directly in workflow (no separate script)
   integrated-admin-fix:
@@ -1020,20 +1020,20 @@ jobs:
     # Run on main branch push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 15
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Set up SSH
         uses: shimataro/ssh-key-action@v2
         with:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           if_key_exists: fail
-      
+
       - name: Execute Integrated Admin Panel Fix
         id: integrated_fix
         env:
@@ -1043,37 +1043,37 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           set -o pipefail
-          
+
           echo "::group::Establishing SSH connection"
           echo "Connecting to $SERVER_IP as $SSH_USER..."
           echo "::endgroup::"
-          
+
           echo "Executing Integrated Admin Panel Fix remotely..."
           # Using a variable to hold SSH command output
           RESULT=$(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
             cd ~/dev/vpnservice
-            
+
             echo "===== Starting Integrated Admin Panel Fix ====="
             echo "This fix is directly integrated into the workflow"
-            
+
             # Get environment variables from GitHub Actions
             SUPABASE_URL="${SUPABASE_URL}"
             SUPABASE_KEY="${SUPABASE_KEY}"
             API_URL=${API_URL:-"http://backend:3000"}
-            
+
             echo "Using SUPABASE_URL: ${SUPABASE_URL}"
             echo "Using SUPABASE_KEY: ${SUPABASE_KEY:0:10}..." # Only show first 10 chars for security
             echo "Using API_URL: ${API_URL}"
-            
+
             # 1. Stop and remove the admin container
             echo "Stopping and removing existing admin container..."
             docker stop vpn-admin 2>/dev/null || echo "No container to stop"
             docker rm vpn-admin 2>/dev/null || echo "No container to remove"
-            
+
             # 2. Remove existing admin panel image to force a clean rebuild
             echo "Removing admin panel Docker image (if exists)..."
             docker rmi vpnservice-admin 2>/dev/null || docker rmi vpn-admin-fixed 2>/dev/null || echo "No image to remove"
-            
+
             # 3. Create explicit Next.js environment files in the admin-panel directory
             echo "Creating Next.js environment files..."
             mkdir -p admin-panel
@@ -1082,17 +1082,17 @@ jobs:
             echo "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" >> admin-panel/.env
             echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}" >> admin-panel/.env
             echo "NEXT_PUBLIC_API_URL=${API_URL}" >> admin-panel/.env
-            
+
             # Create all variations of Next.js environment files
             cp admin-panel/.env admin-panel/.env.local
             cp admin-panel/.env admin-panel/.env.production
             cp admin-panel/.env admin-panel/.env.production.local
-            
+
             echo "Created environment files in admin-panel directory"
-            
+
             # 4. Create a custom Dockerfile that ensures proper Next.js environment variable handling
             echo "Creating optimized Next.js Dockerfile..."
-            
+
             # Create Dockerfile using echo commands - pass the actual values, not variable references
             echo "FROM node:20-alpine AS builder" > admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
@@ -1212,7 +1212,7 @@ jobs:
             echo "# Build the app with additional memory" >> admin-panel/Dockerfile.fixed
             echo "RUN NODE_OPTIONS='--max_old_space_size=4096' npm run build" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            
+
             echo "# Production image" >> admin-panel/Dockerfile.fixed
             echo "FROM node:20-alpine AS runner" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
@@ -1225,48 +1225,48 @@ jobs:
             echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\"\${NEXT_PUBLIC_SUPABASE_ANON_KEY}\"" >> admin-panel/Dockerfile.fixed
             echo "ENV NEXT_PUBLIC_API_URL=\"\${NEXT_PUBLIC_API_URL}\"" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            
+
             echo "# Create a non-root user for security" >> admin-panel/Dockerfile.fixed
             echo "RUN addgroup --system --gid 1001 nodejs" >> admin-panel/Dockerfile.fixed
             echo "RUN adduser --system --uid 1001 nextjs" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            
+
             echo "# Copy the standalone output from the builder stage" >> admin-panel/Dockerfile.fixed
             echo "COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone/ ./" >> admin-panel/Dockerfile.fixed
             echo "COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static" >> admin-panel/Dockerfile.fixed
             echo "COPY --from=builder --chown=nextjs:nodejs /app/public ./public" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            
+
             echo "# Set the proper permissions" >> admin-panel/Dockerfile.fixed
             echo "RUN chmod -R 755 ./.next" >> admin-panel/Dockerfile.fixed
             echo "USER nextjs" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            
+
             echo "# Expose the port" >> admin-panel/Dockerfile.fixed
             echo "EXPOSE 3000" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            
+
             echo "# Add a health check" >> admin-panel/Dockerfile.fixed
             echo "HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 CMD wget -qO- http://localhost:3000/ || exit 1" >> admin-panel/Dockerfile.fixed
             echo "" >> admin-panel/Dockerfile.fixed
-            
+
             echo "# Start the Next.js application" >> admin-panel/Dockerfile.fixed
             echo "CMD [\"node\", \"server.js\"]" >> admin-panel/Dockerfile.fixed
-            
+
 
             echo "Created custom Dockerfile at admin-panel/Dockerfile.fixed"
-            
+
             # Debug: Print the Dockerfile content
             echo "Debug: Contents of generated Dockerfile.fixed:"
             cat admin-panel/Dockerfile.fixed
-            
+
             # 5. Build the admin panel with the specialized Dockerfile
             echo "Building admin panel with specialized Dockerfile..."
             docker build -t vpn-admin-fixed:latest -f admin-panel/Dockerfile.fixed ./admin-panel || {
               echo "ERROR: Failed to build admin panel image"
               exit 1
             }
-            
+
             # 6. Determine the network to use
             echo "Finding network for container..."
             NETWORK_NAME=$(docker network ls | grep vpn | head -1 | awk '{print $2}')
@@ -1277,7 +1277,7 @@ jobs:
             else
               echo "Using existing network: $NETWORK_NAME"
             fi
-            
+
             # 7. Run the container with environment variables explicitly set
             echo "Starting admin panel container..."
             docker run -d \
@@ -1293,21 +1293,21 @@ jobs:
                 echo "ERROR: Failed to start admin panel container"
                 exit 1
               }
-            
+
             echo "Admin panel container started, waiting for initialization..."
             sleep 10
-            
+
             # 8. Verify container status
             echo "Checking container status..."
             docker ps | grep vpn-admin || {
               echo "WARNING: Container not found in running containers!"
               exit 1
             }
-            
+
             # 9. View logs to check for errors
             echo "Container logs:"
             docker logs vpn-admin | tail -n 20
-            
+
             # 10. Test accessibility
             echo "Testing admin panel accessibility..."
             for i in {1..5}; do
@@ -1321,7 +1321,7 @@ jobs:
                 sleep 5
               fi
             done
-            
+
             if [ "$ADMIN_ACCESSIBLE" != "true" ]; then
               echo "❌ Admin panel still shows 'Service Temporarily Unavailable'"
               echo "Please check the application logs for specific errors:"
@@ -1336,26 +1336,26 @@ jobs:
               echo "The admin panel should now be accessible at:"
               echo "  http://localhost:8080"
             fi
-            
+
             echo "===== Admin Panel Fix Complete ====="
             exit 0
           ENDSSH
           )
-          
+
           echo "$RESULT"
-          
+
           # Check if the fix was successful
           if [[ $? -eq 0 ]]; then
             echo "integrated_fix_successful=true" >> $GITHUB_OUTPUT
           else
             echo "integrated_fix_successful=false" >> $GITHUB_OUTPUT
           fi
-      
+
       - name: Fix Report
         run: |
           echo "## Next.js Admin Panel Fix Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           if [[ "${{ steps.integrated_fix.outputs.integrated_fix_successful }}" == "true" ]]; then
             echo "### ✅ Admin Panel Fix Successful" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -1365,7 +1365,7 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "The admin panel fix attempt failed. Please check the job logs for details." >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Fix Details" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

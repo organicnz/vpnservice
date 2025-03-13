@@ -76,7 +76,7 @@ jobs:
     defaults:
       run:
         working-directory: ./backend
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -139,7 +139,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: ./admin-panel/package-lock.json
-
+      
       - name: Install dependencies
         run: npm ci || npm install
 
@@ -180,7 +180,7 @@ jobs:
     defaults:
       run:
         working-directory: ./backend
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -221,10 +221,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: ./admin-panel/package-lock.json
-
+      
       - name: Install dependencies
         run: npm ci || npm install
-
+      
       - name: Run tests
         run: npm test || echo "Tests failed but continuing"
 
@@ -237,11 +237,11 @@ jobs:
       needs.check.outputs.backend_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -325,7 +325,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.event_name == 'workflow_dispatch'
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -409,32 +409,46 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up SSH
-        # This step is a placeholder - you would add your SSH setup here
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known hosts
         run: |
-          echo "Setting up SSH for deployment..."
-          # In a real scenario, you would:
-          # 1. Create an SSH key
-          # 2. Set up known_hosts
-          # 3. Configure SSH connection
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
       - name: Deploy to Server
-        # This step is a placeholder - you would add your deployment commands here
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
           echo "Deploying to production server..."
-          # In a real scenario, you would:
-          # 1. SSH into your server
-          # 2. Pull the latest changes
-          # 3. Rebuild and restart containers
-          echo "Deployment completed successfully!"
+          ssh $SERVER_USER@$SERVER_HOST << 'ENDSSH'
+            cd $DEPLOY_PATH
+            echo "Pulling latest changes..."
+            git pull origin main
+            echo "Rebuilding services..."
+            docker-compose build --no-cache backend admin
+            echo "Restarting services..."
+            docker-compose up -d backend admin
+            echo "Cleaning up old images..."
+            docker image prune -f
+            echo "Checking service status..."
+            docker-compose ps
+            echo "Deployment completed!"
+          ENDSSH
 
       - name: Verify Deployment
-        # This step is a placeholder - you would add your verification here
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
           echo "Verifying deployment..."
-          # In a real scenario, you would:
-          # 1. Check if services are running
-          # 2. Run basic health checks
-          echo "Deployment verified successfully!"
+          ssh $SERVER_USER@$SERVER_HOST "docker-compose ps --format json" | grep -q "running" \
+            && echo "✅ Services are running" \
+            || (echo "❌ Service verification failed" && exit 1)
 
   # Success notification
   notify-success:

@@ -12,8 +12,8 @@ const env: EnvConfig = {
   port: parseInt(process.env.PORT || '3000', 10),
   supabaseUrl: process.env.SUPABASE_URL || '',
   supabaseKey: process.env.SUPABASE_KEY || '',
-  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN,
+  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
   jwtSecret: process.env.JWT_SECRET || 'your-secret-key',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1d'
 };

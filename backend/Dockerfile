@@ -15,10 +15,10 @@ COPY package*.json ./
 # Install dependencies with TypeScript
 RUN echo "Installing dependencies..." && \
     npm config set registry https://registry.npmjs.org/ && \
-    # Install dependencies first
+    # Install TypeScript and ts-node globally first
+    npm install -g typescript@latest ts-node@latest && \
+    # Install project dependencies
     npm ci || npm install && \
-    # Install TypeScript globally for the build stage
-    npm install -g typescript@latest && \
     npm cache clean --force
 
 # Copy application code
@@ -37,11 +37,11 @@ RUN echo "Running linting checks..." && \
 RUN echo "Building TypeScript code..." && \
     if [ -f "tsconfig.json" ]; then \
       echo "Found tsconfig.json, building with tsc..." && \
-      npx tsc || exit 1; \
+      tsc || exit 1; \
     else \
       echo "No tsconfig.json found, creating default..." && \
-      npx tsc --init && \
-      npx tsc || exit 1; \
+      tsc --init && \
+      tsc || exit 1; \
     fi
 
 # Production stage - multi-stage build to reduce final image size

@@ -427,8 +427,16 @@ jobs:
           echo "Deploying to production server..."
           ssh $SERVER_USER@$SERVER_HOST << 'ENDSSH'
             cd $DEPLOY_PATH
-            echo "Pulling latest changes..."
+            # Set up git configuration for proper handling of divergent branches
+            git config pull.rebase true
+            # Ensure we're on the main branch
+            git checkout main
+            # Stash any local changes if necessary
+            git stash
+            echo "Pulling latest changes with rebase strategy..."
             git pull origin main
+            # Apply stashed changes if any were stashed
+            git stash list | grep -q "stash@{0}" && git stash pop || echo "No stashed changes to apply"
             echo "Rebuilding services..."
             docker-compose build --no-cache backend admin
             echo "Restarting services..."

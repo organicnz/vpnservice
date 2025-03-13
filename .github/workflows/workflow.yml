@@ -23,7 +23,7 @@ jobs:
   # Check job - always runs for basic checks and diagnostics
   check:
     name: Environment Check
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       backend_changed: ${{ steps.filter.outputs.backend }}
@@ -71,7 +71,7 @@ jobs:
     if: |
       (github.event_name == 'push' || github.event_name == 'pull_request') &&
       needs.check.outputs.backend_changed == 'true'
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
       run:
@@ -85,15 +85,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: ./backend/package-lock.json
 
       - name: Install dependencies
         run: npm ci || npm install
 
       - name: Run linting
-        id: lin
-        run: npm run lin
+        id: lint
+        run: npm run lint
         continue-on-error: true
 
       - name: Run auto-fix if linting failed
@@ -110,7 +110,7 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [[ -n $(git status -s) ]]; then
             git config user.name "GitHub Actions"
-            git config user.email 'actions@github.com'
+            git config user.email actions@github.com
             git add .
             git commit -m "Fix(lint): auto-fix linting issues in backend"
             git push
@@ -123,7 +123,7 @@ jobs:
     if: |
       (github.event_name == 'push' || github.event_name == 'pull_request') &&
       needs.check.outputs.admin_changed == 'true'
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
       run:
@@ -137,15 +137,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: ./admin-panel/package-lock.json
 
       - name: Install dependencies
         run: npm ci || npm install
 
       - name: Run linting
-        id: lin
-        run: npm run lin
+        id: lint
+        run: npm run lint
         continue-on-error: true
 
       - name: Run auto-fix if linting failed
@@ -162,7 +162,7 @@ jobs:
           cd $GITHUB_WORKSPACE
           if [[ -n $(git status -s) ]]; then
             git config user.name "GitHub Actions"
-            git config user.email 'actions@github.com'
+            git config user.email actions@github.com
             git add .
             git commit -m "Fix(lint): auto-fix linting issues in admin panel"
             git push
@@ -175,7 +175,7 @@ jobs:
     if: |
       (github.event_name == 'push' || github.event_name == 'pull_request') &&
       needs.check.outputs.backend_changed == 'true'
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
@@ -189,7 +189,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: ./backend/package-lock.json
 
       - name: Install dependencies
@@ -205,7 +205,7 @@ jobs:
     if: |
       (github.event_name == 'push' || github.event_name == 'pull_request') &&
       needs.check.outputs.admin_changed == 'true'
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
@@ -219,7 +219,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: ./admin-panel/package-lock.json
 
       - name: Install dependencies
@@ -235,7 +235,7 @@ jobs:
     if: |
       (github.event_name == 'push' || github.event_name == 'pull_request') &&
       needs.check.outputs.backend_changed == 'true'
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
@@ -260,11 +260,11 @@ jobs:
           context: ./backend
           push: false
           load: true
-          tags: vpnservice-backend:lates
+          tags: vpnservice-backend:latest
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
           build-args: |
-            NODE_ENV=developmen
+            NODE_ENV=development
             NPM_FLAGS=--no-audit --no-fund --legacy-peer-deps
 
       # This ugly bit is necessary to prevent cache growing too large
@@ -281,7 +281,7 @@ jobs:
     if: |
       (github.event_name == 'push' || github.event_name == 'pull_request') &&
       needs.check.outputs.admin_changed == 'true'
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
@@ -306,11 +306,11 @@ jobs:
           context: ./admin-panel
           push: false
           load: true
-          tags: vpnservice-admin:lates
+          tags: vpnservice-admin:latest
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
           build-args: |
-            NODE_ENV=developmen
+            NODE_ENV=development
 
       # This ugly bit is necessary to prevent cache growing too large
       # See: https://github.com/docker/build-push-action/issues/252
@@ -322,7 +322,7 @@ jobs:
   # Comprehensive fix job - runs all fixes at once
   fix-all:
     name: Apply All Fixes
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.event_name == 'workflow_dispatch'
 
@@ -336,7 +336,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: backend/package-lock.json
 
       - name: Fix TypeScript issues
@@ -367,9 +367,9 @@ jobs:
           context: ./backend
           push: false
           load: true
-          tags: vpnservice-backend:lates
+          tags: vpnservice-backend:latest
           build-args: |
-            NODE_ENV=developmen
+            NODE_ENV=development
             NPM_FLAGS=--no-audit --no-fund --legacy-peer-deps
 
       - name: Verify build
@@ -400,7 +400,7 @@ jobs:
     name: Deploy to Production
     needs: [build-backend, build-admin, test-backend, test-admin]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production
 
@@ -427,7 +427,7 @@ jobs:
           # 3. Rebuild and restart containers
           echo "Deployment completed successfully!"
 
-      - name: Verify Deploymen
+      - name: Verify Deployment
         # This step is a placeholder - you would add your verification here
         run: |
           echo "Verifying deployment..."
@@ -441,7 +441,7 @@ jobs:
     name: Notify Success
     needs: [build-backend, build-admin, test-backend, test-admin, deploy]
     if: success()
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     steps:
       - name: Post success status
         run: |

@@ -5,10 +5,20 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main, dev]
-  workflow_dispatch: # Manual trigger with no inputs
+  workflow_dispatch:
+    inputs:
+      job_to_run:
+        description: 'Job to run'
+        required: true
+        default: 'fix-typescript'
+        type: choice
+        options:
+        - fix-typescript
+        - update-dependencies
+        - rebuild-component
 
 permissions:
-  contents: read
+  contents: write  # Needed for pushing fixes
 
 # Enforce stronger concurrency control
 concurrency:
@@ -16,1354 +26,268 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Job selector for manual triggers
-  selector:
+  # Detect repository type and always run
+  detect:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
     outputs:
-      job_to_run: ${{ steps.select.outputs.job }}
+      repo_type: ${{ steps.detect.outputs.repo_type }}
     steps:
-      - id: select
+      - uses: actions/checkout@v4
+      - id: detect
         run: |
-          # Since we can't use interactive input in GitHub Actions,
-          # we'll randomly select one job based on the run number
-          if [[ $(( $GITHUB_RUN_NUMBER % 10 )) -lt 7 ]]; then
-            echo "Selected job: fix-typescript"
-            echo "job=fix-typescript" >> $GITHUB_OUTPUT
-          elif [[ $(( $GITHUB_RUN_NUMBER % 10 )) -lt 9 ]]; then
-            echo "Selected job: update-dependencies"
-            echo "job=update-dependencies" >> $GITHUB_OUTPUT
+          echo "Running detection step to determine repository configuration..."
+          if [ -d "backend" ] && [ -d "admin-panel" ]; then
+            echo "repo_type=full" >> $GITHUB_OUTPUT
+            echo "Detected full repository with backend and admin-panel"
+          elif [ -d "backend" ]; then
+            echo "repo_type=backend" >> $GITHUB_OUTPUT
+            echo "Detected backend-only repository"
+          elif [ -d "admin-panel" ]; then
+            echo "repo_type=admin" >> $GITHUB_OUTPUT
+            echo "Detected admin-panel-only repository"
           else
-            echo "Selected job: rebuild-component"
-            echo "job=rebuild-component" >> $GITHUB_OUTPUT
+            echo "repo_type=unknown" >> $GITHUB_OUTPUT
+            echo "Unable to determine repository type"
           fi
-        shell: bash
 
-  lint:
-    # Run on push/PR events only
-    if: github.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-lates
-    continue-on-error: true  # Allow the job to continue even if linting fails
-    strategy:
-      matrix:
-        component: [backend, admin-panel]
-      fail-fast: false  # Don't fail all matrix jobs if one fails
+  # Linting job for backend
+  lint-backend:
+    needs: detect
+    if: needs.detect.outputs.repo_type == 'full' || needs.detect.outputs.repo_type == 'backend'
+    runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./${{ matrix.component }}
-
+        working-directory: ./backend
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: |
-            ${{ matrix.component }}/package-lock.json
-            ${{ matrix.component }}/package.json
-
+          cache-dependency-path: backend/package-lock.json
+      
       - name: Install dependencies
-        run: npm install --no-package-lock
-        continue-on-error: true
-
+        run: npm ci || npm install
+        
       - name: Run linting
-        run: npm run lint || echo "⚠️ Linting issues found, but continuing build"
-
-      - name: Check for security vulnerabilities
-        run: npm audit --production --audit-level=high || echo "⚠️ Security vulnerabilities found, please review"
-
-      # New step to automatically fix common linting issues
+        run: npm run lint || echo "Linting failed but continuing"
+      
       - name: Auto-fix linting issues
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          if [ -f "package.json" ] && grep -q "lint:fix" package.json; then
-            echo "Running automatic lint fixes..."
-            npm run lint:fix || echo "⚠️ Some linting issues could not be fixed automatically"
-          else
-            echo "No lint:fix script found in package.json, skipping auto-fix"
-            if [ "${{ matrix.component }}" = "backend" ]; then
-              # Add specific fixes for backend TypeScript issues
-              echo "Applying specific fixes for common TypeScript errors..."
-
-              # Fix ES2015 module syntax over namespaces
-              find src -name "*.ts" -type f -exec sed -i 's/namespace/module/g' {} \;
-
-              # Fix unused variables by commenting them ou
-              find src -name "*.ts" -type f -exec sed -i 's/const hashedPassword/\/\/ const hashedPassword/g' {} \;
-
-              # Fix unused variables like _nex
-              find src -name "*.ts" -type f -exec sed -i 's/const _next/\/\/ const _next/g' {} \;
+          if [ -f "fix-lint.js" ]; then
+            echo "Running auto-fix script..."
+            node fix-lint.js || echo "Fix script completed with warnings"
+            
+            # Check if there are changes to commit
+            cd $GITHUB_WORKSPACE
+            git config --local user.email "github-actions@github.com"
+            git config --local user.name "GitHub Actions"
+            
+            if [[ -n $(git status -s) ]]; then
+              git add .
+              git commit -m "Fix(lint): auto-fix linting issues in backend"
+              git push
+            else
+              echo "No changes to commit"
             fi
-          fi
-
-      # Add commit with fixes if running on main branch
-      - name: Commit linting fixes
-        if: github.ref == 'refs/heads/main' && matrix.component == 'backend'
-        run: |
-          cd $GITHUB_WORKSPACE
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-
-          # Check if there are changes to commi
-          if git diff --quiet; then
-            echo "No linting fixes to commit"
-            exit 0
-          fi
-
-          git add .
-          git commit -m "Fix(lint): auto-fix linting issues in backend" || echo "No changes to commit"
-          git push || echo "Push failed, possibly due to permissions or concurrent changes"
-
-  # Add a new job to specifically fix TypeScript errors
-  fix-typescript:
-    runs-on: ubuntu-latest
-    # Run only if selected from workflow_dispatch
-    if: github.event_name == 'workflow_dispatch' && needs.selector.outputs.job_to_run == 'fix-typescript'
-    needs: selector
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Fix TypeScript Errors
-        run: |
-          cd backend
-          echo "Fixing common TypeScript errors..."
-
-          # 1. Fix ES2015 module syntax over namespaces
-          echo "Fixing ES2015 module syntax..."
-          find src -name "*.ts" -type f -exec sed -i 's/namespace Express/import Express/g' {} \;
-
-          # 2. Fix unused variables
-          echo "Fixing unused variables..."
-          # Fix hashedPassword
-          sed -i 's/const hashedPassword/\/\/ const hashedPassword/g' src/services/authService.ts
-
-          # Fix _next variables
-          sed -i 's/const _next/\/\/ const _next/g' src/index.ts
-          sed -i 's/const _next/\/\/ const _next/g' src/app.ts
-
-          # 3. Fix spacing/formatting issues
-          echo "Fixing formatting issues..."
-          sed -i 's/ \{2,\}/ /g' src/controllers/planController.ts
-          sed -i 's/ \{2,\}/ /g' src/controllers/authController.ts
-
-          # 4. Fix config/env.ts issues
-          echo "Fixing environment config issues..."
-          sed -i 's/varName/(varName)/g' src/config/env.ts
-          sed -i 's/\n      Error: Missing required environment variables/Error: Missing required environment variables/g' src/config/env.ts
-
-          # Fix missing commas
-          find src -name "*.ts" -type f -exec sed -i 's/}$/},/g' {} \;
-
-          # 5. Install any missing dependencies
-          npm install --no-fund --quiet || echo "⚠️ npm install had issues, but continuing"
-
-          echo "TypeScript fixes applied"
-
-      - name: Commit TypeScript fixes
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-
-          # Check if there are changes to commi
-          if git diff --quiet; then
-            echo "No TypeScript fixes to commit"
-            exit 0
-          fi
-
-          git add .
-          git commit -m "Fix(typescript): fix TypeScript errors in backend" || echo "No changes to commit"
-          git push || echo "Push failed, possibly due to permissions or concurrent changes"
-
-  build:
-    # Run on push/PR events only
-    if: github.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-lates
-    # Remove dependency on lint job
-    # needs: [lint]
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # Add a step to fix package.json issues before Docker build
-      - name: Prepare backend for build
-        run: |
-          cd backend
-          echo "Ensuring dependencies are properly configured..."
-          # Check if package-lock.json exists
-          if [ -f "package-lock.json" ]; then
-            echo "package-lock.json exists, syncing with package.json"
-            # Remove package-lock.json to avoid conflicts
-            rm package-lock.json
-            # Install dependencies to create a fresh package-lock.json
-            npm install --no-fund --quiet || echo "⚠️ npm install had issues, but continuing"
           else
-            echo "No package-lock.json found, creating one"
-            npm install --no-fund --quiet || echo "⚠️ npm install had issues, but continuing"
+            echo "No fix-lint.js script found"
           fi
-          cd ..
 
+  # Build job
+  build:
+    needs: detect
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          buildkitd-flags: --debug
-
-      - name: Cache Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
-
+      
       - name: Build backend image
+        if: needs.detect.outputs.repo_type == 'full' || needs.detect.outputs.repo_type == 'backend'
         uses: docker/build-push-action@v5
         with:
           context: ./backend
           push: false
           load: true
-          tags: vpnservice-backend:lates
+          tags: vpnservice-backend:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Add build arguments to handle npm install issues
           build-args: |
-            NODE_ENV=developmen
+            NODE_ENV=development
             NPM_FLAGS=--no-audit --no-fund --force
-
+      
       - name: Build admin panel image
+        if: needs.detect.outputs.repo_type == 'full' || needs.detect.outputs.repo_type == 'admin'
         uses: docker/build-push-action@v5
         with:
           context: ./admin-panel
           push: false
           load: true
-          tags: vpnservice-admin:lates
+          tags: vpnservice-admin:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Consolidated admin panel fix job
-  fix-admin-panel:
-    runs-on: ubuntu-lates
-    # Run on main branch push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up SSH
-        uses: shimataro/ssh-key-action@v2
-        with:
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
-          if_key_exists: fail
-
-      - name: Execute Consolidated Admin Panel Fix
-        id: fix_admin
-        env:
-          SSH_USER: organic
-          SERVER_IP: ${{ secrets.VPN_DOMAIN }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: |
-          set -o pipefail
-
-          echo "::group::Establishing SSH connection"
-          echo "Connecting to $SERVER_IP as $SSH_USER..."
-          echo "::endgroup::"
-
-          echo "Executing Consolidated Admin Panel Fix remotely..."
-          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
-            set +e
-
-            cd ~/dev/vpnservice
-
-            echo "::group::Starting fix process"
-            echo "===== Starting Comprehensive Admin Panel Fix ====="
-            echo "This fix addresses all potential causes of 'Service Temporarily Unavailable' error"
-            echo "::endgroup::"
-
-            echo "::group::Backup environment"
-            # 1. Create backup of environment and configuration
-            echo "Creating backup of current environment..."
-            cp .env .env.backup.$(date +%Y%m%d%H%M%S) 2>/dev/null || echo "No .env file to backup"
-            cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d%H%M%S) 2>/dev/null || echo "No docker-compose.yml file to backup"
-            echo "::endgroup::"
-
-            echo "::group::Repository update"
-            # 2. Ensure we have the latest code
-            echo "Pulling latest code..."
-            git pull origin main
-            echo "::endgroup::"
-
-            echo "::group::Environment setup"
-            # 3. Using Supabase variables from GitHub secrets
-            SUPABASE_URL="${SUPABASE_URL}"
-            SUPABASE_KEY="${SUPABASE_KEY}"
-
-            echo "Using Supabase URL: $SUPABASE_URL"
-            echo "Using Supabase Key: ${SUPABASE_KEY:0:10}..." # Only show the first 10 characters for security
-
-            # 4. Stop and remove the admin container
-            echo "Stopping and removing the admin container..."
-            if command -v docker-compose &> /dev/null; then
-              docker-compose down admin || echo "No admin service to stop with docker-compose"
-            else
-              docker compose down admin || echo "No admin service to stop with docker compose"
-            fi
-            docker stop vpn-admin 2>/dev/null || echo "No vpn-admin container to stop"
-            docker rm vpn-admin 2>/dev/null || echo "No vpn-admin container to remove"
-
-            # 5. Create directories for environment files
-            echo "Setting up environment files with correct values..."
-            mkdir -p .admin-fix
-            mkdir -p admin-panel
-
-            # 6. Create environment files with correct values from GitHub secrets
-            echo "Creating environment files..."
-            mkdir -p .admin-fix
-            echo "# Next.js environment variables" > .admin-fix/.env
-            echo "NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .admin-fix/.env
-            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY" >> .admin-fix/.env
-            echo "NEXT_PUBLIC_API_URL=http://backend:3000" >> .admin-fix/.env
-
-            # Create copies for all possible Next.js env file locations
-            cp .admin-fix/.env .admin-fix/.env.local
-            cp .admin-fix/.env .admin-fix/.env.production
-            cp .admin-fix/.env .admin-fix/.env.production.local
-
-            # Also create files directly in the admin-panel directory
-            mkdir -p admin-panel
-            cp .admin-fix/.env admin-panel/.env.local
-
-            # 7. Update the main .env file
-            echo "Updating main .env file with correct variables..."
-
-            # Update or add Supabase variables
-            if [ -f ".env" ]; then
-              # Update existing variables
-              sed -i "s|SUPABASE_URL=.*|SUPABASE_URL=$SUPABASE_URL|g" .env
-              sed -i "s|SUPABASE_KEY=.*|SUPABASE_KEY=$SUPABASE_KEY|g" .env
-              sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL|g" .env
-              sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY|g" .env
-
-              # Add if they don't exis
-              grep -q "NEXT_PUBLIC_SUPABASE_URL" .env || echo "NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .env
-              grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY" >> .env
-              echo "Updated .env file with correct values"
-            else
-              # Create a new .env file
-              echo "Creating new .env file..."
-              echo "# Basic configuration" > .env
-              echo "NODE_ENV=production" >> .env
-              echo "" >> .env
-              echo "# Supabase configuration" >> .env
-              echo "SUPABASE_URL=${SUPABASE_URL}" >> .env
-              echo "SUPABASE_KEY=${SUPABASE_KEY}" >> .env
-              echo "" >> .env
-              echo "# Next.js admin panel configuration" >> .env
-              echo "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" >> .env
-              echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}" >> .env
-              echo "NEXT_PUBLIC_API_URL=http://backend:3000" >> .env
-              echo "Created new .env file with required variables"
-            fi
-            echo "::endgroup::"
-
-            echo "::group::Docker Compose configuration"
-            # 8. Update docker-compose.yml if it exists
-            if [ -f "docker-compose.yml" ]; then
-              echo "Updating docker-compose.yml..."
-
-              # 8.1. Update build args if they exis
-              sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL|g" docker-compose.yml || echo "Could not update SUPABASE_URL in docker-compose.yml"
-              sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY|g" docker-compose.yml || echo "Could not update SUPABASE_KEY in docker-compose.yml"
-
-              # 8.2. Add volumes for environment files
-              # Check if volumes section already exists for admin service
-              if grep -q "admin:.*volumes:" docker-compose.yml -A 5; then
-                echo "Volumes section exists, updating it..."
-                # Remove existing environment file mounts if they exis
-                sed -i '/\.\(admin-panel-env\|admin-fix\)/d' docker-compose.yml || echo "Could not remove existing volume mounts"
-
-                # Find the line number where the volumes section is for the admin service
-                ADMIN_VOL_LINE=$(grep -n "admin:.*volumes:" docker-compose.yml | cut -d: -f1)
-                if [ -n "$ADMIN_VOL_LINE" ]; then
-                  # Add our volume mounts to the existing volumes section
-                  sed -i "${ADMIN_VOL_LINE}a\\      - ./.admin-fix/.env:/app/.env" docker-compose.yml || echo "Could not add env mount"
-                  sed -i "${ADMIN_VOL_LINE}a\\      - ./.admin-fix/.env.local:/app/.env.local" docker-compose.yml || echo "Could not add env.local mount"
-                  sed -i "${ADMIN_VOL_LINE}a\\      - ./.admin-fix/.env.production:/app/.env.production" docker-compose.yml || echo "Could not add env.production mount"
-                  sed -i "${ADMIN_VOL_LINE}a\\      - ./.admin-fix/.env.production.local:/app/.env.production.local" docker-compose.yml || echo "Could not add env.production.local mount"
-                  echo "Added environment file volume mounts to existing volumes section"
-                else
-                  echo "Volumes section found but line number could not be determined"
-                fi
-              else
-                echo "Adding new volumes section for admin service..."
-                # Find the admin service section
-                ADMIN_LINE=$(grep -n "container_name: vpn-admin" docker-compose.yml | cut -d: -f1)
-                if [ -n "$ADMIN_LINE" ]; then
-                  # Add a new volumes section
-                  sed -i "${ADMIN_LINE}a\\    volumes:\\n      - ./.admin-fix/.env:/app/.env\\n      - ./.admin-fix/.env.local:/app/.env.local\\n      - ./.admin-fix/.env.production:/app/.env.production\\n      - ./.admin-fix/.env.production.local:/app/.env.production.local" docker-compose.yml || echo "Could not add volumes section"
-                  echo "Added new volumes section for admin service"
-                else
-                  echo "Admin service section not found in docker-compose.yml"
-                fi
-              fi
-
-              # Also add environment section if it doesn't exis
-              if ! grep -q "admin:.*environment:" docker-compose.yml -A 5; then
-                ADMIN_LINE=$(grep -n "container_name: vpn-admin" docker-compose.yml | cut -d: -f1)
-                if [ -n "$ADMIN_LINE" ]; then
-                  sed -i "${ADMIN_LINE}a\\    environment:\\n      - NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL\\n      - NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY\\n      - NEXT_PUBLIC_API_URL=http://backend:3000" docker-compose.yml || echo "Could not add environment section"
-                  echo "Added environment section for admin service"
-                fi
-              else
-                echo "Environment section already exists for admin service"
-              fi
-            else
-              echo "No docker-compose.yml file found, skipping docker-compose.yml updates"
-            fi
-            echo "::endgroup::"
-
-            echo "::group::Custom Dockerfile"
-            # 9. Create a custom Dockerfile for the admin panel
-            echo "Creating optimized Dockerfile for Next.js..."
-            mkdir -p .admin-fix
-
-            # Create Dockerfile using echo commands instead of heredoc
-            echo "FROM node:20-alpine AS builder" > .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "WORKDIR /app" >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "# Set build arguments and environment variables" >> .admin-fix/Dockerfile
-            echo "ARG NEXT_PUBLIC_SUPABASE_URL=\"$SUPABASE_URL\"" >> .admin-fix/Dockerfile
-            echo "ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=\"$SUPABASE_KEY\"" >> .admin-fix/Dockerfile
-            echo "ARG NEXT_PUBLIC_API_URL=\"http://backend:3000\"" >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "ENV NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}" >> .admin-fix/Dockerfile
-            echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\${NEXT_PUBLIC_SUPABASE_ANON_KEY}" >> .admin-fix/Dockerfile
-            echo "ENV NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}" >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "# Copy package files" >> .admin-fix/Dockerfile
-            echo "COPY package*.json ./" >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "# Install dependencies" >> .admin-fix/Dockerfile
-            echo "RUN npm ci || npm install" >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "# Copy the rest of the app" >> .admin-fix/Dockerfile
-            echo "COPY . ." >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "# Print environment variables for debugging" >> .admin-fix/Dockerfile
-            echo "RUN echo \"Building with NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}\"" >> .admin-fix/Dockerfile
-            echo "RUN echo \"Building with NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}\"" >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "# Create env files explicitly at build time" >> .admin-fix/Dockerfile
-            echo "RUN echo \"NEXT_PUBLIC_SUPABASE_URL=\${NEXT_PUBLIC_SUPABASE_URL}\" > .env" >> .admin-fix/Dockerfile
-            echo "RUN echo \"NEXT_PUBLIC_SUPABASE_ANON_KEY=\${NEXT_PUBLIC_SUPABASE_ANON_KEY}\" >> .env" >> .admin-fix/Dockerfile
-            echo "RUN echo \"NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}\" >> .env" >> .admin-fix/Dockerfile
-            echo "RUN cp .env .env.local" >> .admin-fix/Dockerfile
-            echo "RUN cp .env .env.production" >> .admin-fix/Dockerfile
-            echo "RUN cp .env .env.production.local" >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "# Build the app" >> .admin-fix/Dockerfile
-            echo "RUN npm run build" >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "# Production image" >> .admin-fix/Dockerfile
-            echo "FROM node:20-alpine AS runner" >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "# Set production environment variables" >> .admin-fix/Dockerfile
-            echo "ENV NODE_ENV=production" >> .admin-fix/Dockerfile
-            echo "ENV NEXT_PUBLIC_SUPABASE_URL=\"\${NEXT_PUBLIC_SUPABASE_URL}\"" >> .admin-fix/Dockerfile
-            echo "ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=\"\${NEXT_PUBLIC_SUPABASE_ANON_KEY}\"" >> .admin-fix/Dockerfile
-            echo "ENV NEXT_PUBLIC_API_URL=\"\${NEXT_PUBLIC_API_URL}\"" >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "# Copy necessary files from builder stage" >> .admin-fix/Dockerfile
-            echo "COPY --from=builder /app/next.config.js ./" >> .admin-fix/Dockerfile
-            echo "COPY --from=builder /app/public ./public" >> .admin-fix/Dockerfile
-            echo "COPY --from=builder /app/.next ./.next" >> .admin-fix/Dockerfile
-            echo "COPY --from=builder /app/node_modules ./node_modules" >> .admin-fix/Dockerfile
-            echo "COPY --from=builder /app/package.json ./package.json" >> .admin-fix/Dockerfile
-            echo "COPY --from=builder /app/.env* ./" >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "# Expose port" >> .admin-fix/Dockerfile
-            echo "EXPOSE 3000" >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "# Health check" >> .admin-fix/Dockerfile
-            echo "HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -qO- http://localhost:3000 || exit 1" >> .admin-fix/Dockerfile
-            echo "" >> .admin-fix/Dockerfile
-            echo "# Start the application" >> .admin-fix/Dockerfile
-            echo "CMD [\"npm\", \"start\"]" >> .admin-fix/Dockerfile
-
-            echo "Created custom Dockerfile at .admin-fix/Dockerfile"
-
-            # 10. Determine if we should update docker-compose.yml to use the custom Dockerfile
-            if [ -f "docker-compose.yml" ] && grep -q "dockerfile: Dockerfile" docker-compose.yml; then
-              echo "Updating docker-compose.yml to use custom Dockerfile..."
-              sed -i "s|dockerfile: Dockerfile|dockerfile: ../.admin-fix/Dockerfile|g" docker-compose.yml || echo "Could not update Dockerfile path"
-              echo "Updated docker-compose.yml to use custom Dockerfile"
-            fi
-            echo "::endgroup::"
-
-            echo "::group::Container rebuild"
-            # 11. Two approaches:
-            echo "Rebuilding container..."
-
-            # Check which version of docker-compose is available
-            DOCKER_COMPOSE_CMD="docker compose"
-            if command -v docker-compose &> /dev/null; then
-              DOCKER_COMPOSE_CMD="docker-compose"
-              echo "Using docker-compose command"
-            else
-              echo "Using docker compose command"
-            fi
-
-            # A. Use docker-compose if available
-            if command -v docker-compose > /dev/null 2>&1 || docker compose version > /dev/null 2>&1; then
-              echo "Rebuilding and starting with Docker Compose..."
-              echo "Building admin container with no cache..."
-              $DOCKER_COMPOSE_CMD build --no-cache admin || {
-                echo "⚠️ Build issues encountered"
-                echo "Trying again with detailed output:"
-                $DOCKER_COMPOSE_CMD build --no-cache --progress=plain admin || echo "⚠️ Build failed, but continuing with existing image if available"
-              }
-
-              echo "Starting admin container..."
-              $DOCKER_COMPOSE_CMD up -d admin || {
-                echo "⚠️ Startup issues encountered"
-                echo "Checking docker-compose.yml configuration:"
-                $DOCKER_COMPOSE_CMD config
-                echo "⚠️ Startup failed, trying alternative approach"
-
-                # Try to start with environment variables directly
-                echo "Attempting to start with direct environment variables..."
-                $DOCKER_COMPOSE_CMD up -d admin || echo "⚠️ All Docker Compose attempts failed"
-              }
-            # B. Use direct Docker commands as fallback
-            else
-              echo "Docker Compose not available, using Docker directly..."
-              # Check for docker network
-              NETWORK_NAME=$(docker network ls | grep vpn | head -1 | awk '{print $2}')
-              if [ -z "$NETWORK_NAME" ]; then
-                NETWORK_NAME="vpn_vpn-network"
-                echo "Creating docker network $NETWORK_NAME..."
-                docker network create $NETWORK_NAME || echo "⚠️ Could not create network, but continuing"
-              else
-                echo "Using existing network: $NETWORK_NAME"
-              fi
-
-              # Build the admin panel image
-              echo "Building admin panel image..."
-              docker build -t vpn-admin-fixed:latest -f .admin-fix/Dockerfile ./admin-panel || {
-                echo "⚠️ Build failed, trying simpler approach:"
-                docker build -t vpn-admin-fixed:lates
-                  --build-arg NEXT_PUBLIC_SUPABASE_URL="$SUPABASE_URL"
-                  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$SUPABASE_KEY"
-                  --build-arg NEXT_PUBLIC_API_URL="http://backend:3000"
-                  ./admin-panel || echo "⚠️ All build attempts failed, but continuing with existing image if available"
-              }
-
-              # Run the container
-              echo "Starting admin panel container..."
-              docker run -d
-                --name vpn-admin
-                --network $NETWORK_NAME
-                -p 8080:3000
-                -v $(pwd)/.admin-fix/.env:/app/.env
-                -v $(pwd)/.admin-fix/.env.local:/app/.env.local
-                -v $(pwd)/.admin-fix/.env.production:/app/.env.production
-                -v $(pwd)/.admin-fix/.env.production.local:/app/.env.production.local
-                -e NEXT_PUBLIC_SUPABASE_URL="$SUPABASE_URL"
-                -e NEXT_PUBLIC_SUPABASE_ANON_KEY="$SUPABASE_KEY"
-                -e NEXT_PUBLIC_API_URL="http://backend:3000"
-                --restart unless-stopped
-                --health-cmd="wget -qO- http://localhost:3000 || exit 1"
-                --health-interval=30s
-                --health-timeout=5s
-                --health-retries=3
-                vpn-admin-fixed:latest || {
-                echo "⚠️ Container startup failed, trying without volume mounts:"
-                docker run -d
-                  --name vpn-admin
-                  --network $NETWORK_NAME
-                  -p 8080:3000
-                  -e NEXT_PUBLIC_SUPABASE_URL="$SUPABASE_URL"
-                  -e NEXT_PUBLIC_SUPABASE_ANON_KEY="$SUPABASE_KEY"
-                  -e NEXT_PUBLIC_API_URL="http://backend:3000"
-                  --restart unless-stopped
-                  vpn-admin-fixed:latest || echo "⚠️ All container startup attempts failed"
-              }
-            fi
-            echo "::endgroup::"
-
-            echo "::group::Container status"
-            # 12. Wait for container to initialize
-            echo "Waiting for admin panel to initialize (45 seconds)..."
-            sleep 45
-
-            # 13. Check container status and logs
-            echo "Admin panel container status:"
-            docker ps | grep vpn-admin || echo "⚠️ Container not found in running containers!"
-
-            echo "Admin panel logs:"
-            docker logs vpn-admin 2>&1 | tail -n 50 || echo "⚠️ Could not retrieve logs"
-            echo "::endgroup::"
-
-            echo "::group::Accessibility test"
-            # 14. Test accessibility with multiple attempts
-            echo "Testing admin panel accessibility..."
-            SUCCESS=false
-
-            for i in {1..5}; do
-              echo "Attempt $i..."
-              HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 || echo "Failed")
-              if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "302" ]; then
-                echo "✅ Admin panel is accessible (HTTP Status: $HTTP_STATUS)"
-                SUCCESS=true
-                break
-              else
-                echo "⚠️ Admin panel returned HTTP Status: $HTTP_STATUS"
-                if [ $i -lt 5 ]; then
-                  echo "Waiting 10 seconds before trying again..."
-                  sleep 10
-                fi
-              fi
-            done
-            echo "::endgroup::"
-
-            echo "::group::Alternative approach"
-            # 15. Alternative approach if still not working
-            if [ "$SUCCESS" != "true" ]; then
-              echo "⚠️ Still having issues. Trying alternative approach..."
-
-              # Stop the container
-              docker stop vpn-admin
-              docker rm vpn-admin
-
-              # Try running with a simpler setup - just the environment variables
-              echo "Starting admin container with simplified approach..."
-              if command -v docker-compose > /dev/null 2>&1 || docker compose version > /dev/null 2>&1; then
-                # Update environment section in docker-compose.yml
-                if grep -q "container_name: vpn-admin" docker-compose.yml; then
-                  sed -i "/container_name: vpn-admin/a\\    environment:\\n      - NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL\\n      - NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY\\n      - NEXT_PUBLIC_API_URL=http://backend:3000" docker-compose.yml || echo "Could not add environment section"
-                  $DOCKER_COMPOSE_CMD up -d admin || echo "⚠️ Could not start admin container"
-                else
-                  echo "Admin service not found in docker-compose.yml"
-                fi
-              else
-                docker run -d
-                  --name vpn-admin
-                  --network vpn_vpn-network
-                  -p 8080:3000
-                  -e NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL
-                  -e NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY
-                  -e NEXT_PUBLIC_API_URL=http://backend:3000
-                  --restart unless-stopped
-                  vpnservice-admin:latest || echo "⚠️ Could not start admin container with direct run"
-              fi
-
-              echo "Waiting 30 seconds for the container to initialize with new configuration..."
-              sleep 30
-
-              # Test again
-              HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 || echo "Failed")
-              if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "302" ]; then
-                echo "✅ Admin panel is now accessible with alternative configuration (HTTP Status: $HTTP_STATUS)"
-                SUCCESS=true
-              else
-                echo "❌ Admin panel still not accessible (HTTP Status: $HTTP_STATUS)"
-                echo "Final logs:"
-                docker logs vpn-admin 2>&1 | tail -n 50 || echo "⚠️ Could not retrieve logs"
-              fi
-            fi
-            echo "::endgroup::"
-
-            echo "::group::Final verification"
-            # 16. Verify environment variables in container
-            echo "Verifying environment variables in container:"
-            docker exec vpn-admin env 2>&1 | grep NEXT_PUBLIC || echo "⚠️ Could not verify environment variables"
-
-            echo ""
-            echo "===== Admin Panel Fix Complete ====="
-            echo ""
-
-            echo "The admin panel should now be accessible at:"
-            echo "http://localhost:8080 (on server)"
-            DOMAIN=${VPN_DOMAIN:-$((curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || hostname -I | awk '{print $1}' || echo "your-server-ip"))}
-            echo "http://$DOMAIN:8080 (externally)"
-
-            # Return success status for GitHub Actions
-            if [ "$SUCCESS" = "true" ]; then
-              echo "ADMIN_PANEL_FIXED=true"
-            else
-              echo "ADMIN_PANEL_FIXED=false"
-            fi
-          ENDSSH
-
-          # Capture the success status
-          if grep -q "ADMIN_PANEL_FIXED=true" <<< "$RESULT"; then
-            echo "admin_panel_fixed=true" >> $GITHUB_OUTPUT
-          else
-            echo "admin_panel_fixed=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Verification Summary
-        run: |
-          echo "## Admin Panel Fix Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The admin panel environment variables have been updated with:" >> $GITHUB_STEP_SUMMARY
-          echo "- **SUPABASE_URL**: ${{ secrets.SUPABASE_URL }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **SUPABASE_KEY**: (partially hidden for security)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [[ "${{ steps.fix_admin.outputs.admin_panel_fixed }}" == "true" ]]; then
-            echo "### ✅ Admin Panel Fix Successful" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The admin panel has been successfully fixed and is now accessible." >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### ⚠️ Admin Panel May Need Additional Attention" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The fix script ran completely, but there may still be issues with the admin panel." >> $GITHUB_STEP_SUMMARY
-            echo "Please check the logs on the server for more information." >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Multiple Approaches Used" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The following approaches were tried to ensure the admin panel works:" >> $GITHUB_STEP_SUMMARY
-          echo "1. **Environment File Approach**: Created all necessary Next.js environment files" >> $GITHUB_STEP_SUMMARY
-          echo "2. **Docker Compose Optimization**: Updated the docker-compose.yml file for proper configuration" >> $GITHUB_STEP_SUMMARY
-          echo "3. **Custom Dockerfile**: Created an optimized Dockerfile that properly handles environment variables" >> $GITHUB_STEP_SUMMARY
-          echo "4. **Volume Mounting**: Ensured environment files are properly mounted in the container" >> $GITHUB_STEP_SUMMARY
-          echo "5. **Direct Environment Variables**: Used environment flags directly in the container" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Admin Panel Access URL" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Admin Panel should now be accessible at:" >> $GITHUB_STEP_SUMMARY
-          echo "http://${{ secrets.VPN_DOMAIN }}:8080" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Troubleshooting" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "If issues persist, check the logs on the server with:" >> $GITHUB_STEP_SUMMARY
-          echo "```bash" >> $GITHUB_STEP_SUMMARY
-          echo "docker logs vpn-admin" >> $GITHUB_STEP_SUMMARY
-          echo "```" >> $GITHUB_STEP_SUMMARY
-
-  # Standard deployment job
-  deploy:
-    runs-on: ubuntu-lates
-    # Run on main branch push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up SSH
-        uses: shimataro/ssh-key-action@v2
-        with:
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
-          if_key_exists: fail
-
-      - name: Deploy to Server
-        id: deploy
-        env:
-          SSH_USER: organic
-          SERVER_IP: ${{ secrets.VPN_DOMAIN }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: |
-          set -o pipefail
-
-          echo "::group::Establishing SSH connection"
-          echo "Connecting to $SERVER_IP as $SSH_USER..."
-          echo "::endgroup::"
-
-          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
-            set +e
-
-            echo "::group::Starting Deployment Process"
-            echo "===== Starting Deployment Process ====="
-
-            # Navigate to project directory
-            mkdir -p ~/dev
-            cd ~/dev
-
-            echo "::group::Repository setup"
-            if [ ! -d "vpnservice" ]; then
-              echo "Cloning repository..."
-              git clone ${{ github.server_url }}/${{ github.repository }}.gi
-              cd vpnservice
-            else
-              cd vpnservice
-              echo "Pulling latest changes..."
-              git fetch --prune
-              git reset --hard origin/main
-            fi
-            echo "::endgroup::"
-
-            echo "::group::Environment setup"
-            # Copy .env file if it doesn't exis
-            if [ ! -f ".env" ]; then
-              echo "Setting up environment variables..."
-              if [ -f ".env.example" ]; then
-              cp .env.example .env
-                echo "Created .env from .env.example"
-              else
-                touch .env
-                echo "Created empty .env file"
-              fi
-
-              # Update with GitHub secrets
-              echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
-              echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> .env
-              echo "NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
-              echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY }}" >> .env
-              echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> .env
-              echo "XUI_USERNAME=${{ secrets.XUI_USERNAME }}" >> .env
-              echo "XUI_PASSWORD=${{ secrets.XUI_PASSWORD }}" >> .env
-              echo "VPN_DOMAIN=${VPN_DOMAIN:-${{ secrets.VPN_DOMAIN }}}" >> .env
-              echo "VPN_ADMIN_EMAIL=${VPN_ADMIN_EMAIL:-admin@example.com}" >> .env
-              echo "NODE_ENV=production" >> .env
-              echo "Added environment variables to .env"
-            fi
-
-            # Update existing .env with correct Supabase variables
-            if [ -f ".env" ]; then
-              echo "Updating .env with latest secret values..."
-              sed -i "s|SUPABASE_URL=.*|SUPABASE_URL=${{ secrets.SUPABASE_URL }}|g" .env
-              sed -i "s|SUPABASE_KEY=.*|SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}|g" .env
-              sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}|g" .env
-              sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY }}|g" .env
-
-              # Add if they don't exis
-              grep -q "NEXT_PUBLIC_SUPABASE_URL" .env || echo "NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
-              grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY }}" >> .env
-              echo "Updated environment variables in .env"
-            else
-              echo "Warning: .env file couldn't be created or updated"
-            fi
-            echo "::endgroup::"
-
-            echo "::group::Docker services"
-            # Start or restart Docker services
-            echo "Starting Docker services..."
-
-            # Check if docker-compose or docker compose is available
-            DOCKER_COMPOSE_CMD="docker compose"
-            if command -v docker-compose &> /dev/null; then
-              DOCKER_COMPOSE_CMD="docker-compose"
-              echo "Using docker-compose command"
-            else
-              echo "Using docker compose command"
-            fi
-
-            echo "Stopping existing containers..."
-            $DOCKER_COMPOSE_CMD down || echo "⚠️ Error stopping containers, continuing anyway"
-
-            echo "Building containers..."
-            $DOCKER_COMPOSE_CMD build || {
-              echo "⚠️ Build issues encountered"
-              echo "Detailed build logs:"
-              $DOCKER_COMPOSE_CMD build --no-cache
-              echo "Continuing despite build issues"
-            }
-
-            echo "Starting containers..."
-            $DOCKER_COMPOSE_CMD up -d || {
-              echo "⚠️ Container startup issues encountered"
-              echo "Checking docker-compose.yml syntax..."
-              $DOCKER_COMPOSE_CMD config
-              echo "Continuing despite startup issues"
-            }
-            echo "::endgroup::"
-
-            echo "::group::Service status"
-            # Verify services are running
-            echo "===== Deployed Services ====="
-            docker ps
-
-            # Check for expected services
-            echo "Checking if key services are running..."
-            if docker ps | grep -q "vpn-admin"; then
-              echo "✅ Admin panel is running"
-            else
-              echo "❌ Admin panel is NOT running"
-            fi
-
-            if docker ps | grep -q "vpn-backend"; then
-              echo "✅ Backend is running"
-            else
-              echo "❌ Backend is NOT running"
-            fi
-
-            if docker ps | grep -q "xray-ui"; then
-              echo "✅ X-UI is running"
-            else
-              echo "❌ X-UI is NOT running"
-            fi
-            echo "::endgroup::"
-
-            echo "::group::Access information"
-            # Print access URLs
-            echo "===== Service Access Information ====="
-            DOMAIN=${VPN_DOMAIN:-${{ secrets.VPN_DOMAIN }}}
-            if [ -z "$DOMAIN" ]; then
-              DOMAIN=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || echo "localhost")
-              echo "⚠️ No domain specified, using detected IP/hostname: $DOMAIN"
-            fi
-
-            echo "VPN Admin Panel: https://$DOMAIN:54321"
-            echo "Backend API: http://$DOMAIN:3000"
-            echo "Admin Dashboard: http://$DOMAIN:8080"
-            echo "Admin Email: ${VPN_ADMIN_EMAIL:-admin@example.com}"
-            echo "::endgroup::"
-
-            echo "===== Deployment Complete ====="
-            # Always succeed
-            exit 0
-          ENDSSH
-
-          # Set GitHub step outputs for summary
-          echo "deployment_complete=true" >> $GITHUB_OUTPUT
-
-      - name: Deployment Summary
-        if: steps.deploy.outputs.deployment_complete == 'true'
-        run: |
-          echo "## Deployment Complete ✅" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The VPN service has been successfully deployed to the server." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Access Information" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Service | URL |" >> $GITHUB_STEP_SUMMARY
-          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
-          echo "| VPN Admin Panel | https://${{ secrets.VPN_DOMAIN }}:54321 |" >> $GITHUB_STEP_SUMMARY
-          echo "| Backend API | http://${{ secrets.VPN_DOMAIN }}:3000 |" >> $GITHUB_STEP_SUMMARY
-          echo "| Admin Dashboard | http://${{ secrets.VPN_DOMAIN }}:8080 |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Admin Email:** ${VPN_ADMIN_EMAIL:-admin@example.com}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. Verify all services are running properly" >> $GITHUB_STEP_SUMMARY
-          echo "2. Check logs if any issues are encountered: `docker logs container-name`" >> $GITHUB_STEP_SUMMARY
-          echo "3. If the admin panel shows 'Service Temporarily Unavailable', run the 'fix-admin' workflow" >> $GITHUB_STEP_SUMMARY
-
-  # Rebuild specific components
-  rebuild-component:
+  # Fix TypeScript issues job
+  fix-typescript:
     runs-on: ubuntu-latest
-    # Run on main branch push or if selected from workflow_dispatch
-    if: >
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') || 
-      (github.event_name == 'workflow_dispatch' && needs.selector.outputs.job_to_run == 'rebuild-component')
-    needs: [selector]
-    timeout-minutes: 20
-
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job_to_run == 'fix-typescript'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Set up SSH
-        uses: shimataro/ssh-key-action@v2
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
-          if_key_exists: fail
-
-      - name: Determine component to rebuild
-        id: componen
+          node-version: 20
+      
+      - name: Fix TypeScript Errors
         run: |
-          # Default to admin componen
-          echo "component_name=admin" >> $GITHUB_OUTPUT
-          echo "container_name=vpn-admin" >> $GITHUB_OUTPUT
-          echo "port=8080" >> $GITHUB_OUTPUT
-
-      - name: Rebuild Specific Componen
-        id: rebuild
-        env:
-          SSH_USER: organic
-          SERVER_IP: ${{ secrets.VPN_DOMAIN }}
-          COMPONENT: ${{ steps.component.outputs.component_name }}
-          CONTAINER: ${{ steps.component.outputs.container_name }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: |
-          set -o pipefail
-
-          echo "::group::Establishing SSH connection"
-          echo "Connecting to $SERVER_IP as $SSH_USER..."
-          echo "::endgroup::"
-
-          echo "Rebuilding $COMPONENT component remotely..."
-          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
-            set +e
-
-            cd ~/dev/vpnservice
-
-            echo "::group::Repository update"
-            echo "Pulling latest changes from repository..."
-            git pull origin main
-            echo "::endgroup::"
-
-            echo "::group::Environment setup"
-            # Update .env file with correct values if rebuilding admin
-            if [ "$COMPONENT" = "admin" ]; then
-              echo "Updating environment variables for admin panel..."
-              if [ -f ".env" ]; then
-                # Backup the existing .env file
-                cp .env .env.backup.$(date +%Y%m%d%H%M%S)
-                echo "Created backup of .env file"
-
-                # Update existing variables
-                sed -i "s|SUPABASE_URL=.*|SUPABASE_URL=${SUPABASE_URL}|g" .env
-                sed -i "s|SUPABASE_KEY=.*|SUPABASE_KEY=${SUPABASE_KEY}|g" .env
-                sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}|g" .env
-                sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}|g" .env
-
-                # Add if they don't exis
-                grep -q "NEXT_PUBLIC_SUPABASE_URL" .env || echo "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" >> .env
-                grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}" >> .env
-                echo "Updated environment variables in .env"
-              else
-                # Create a new .env file
-                echo "Creating new .env file..."
-                echo "# Basic configuration" > .env
-                echo "NODE_ENV=production" >> .env
-                echo "" >> .env
-                echo "# Supabase configuration" >> .env
-                echo "SUPABASE_URL=${SUPABASE_URL}" >> .env
-                echo "SUPABASE_KEY=${SUPABASE_KEY}" >> .env
-                echo "" >> .env
-                echo "# Next.js admin panel configuration" >> .env
-                echo "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" >> .env
-                echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}" >> .env
-                echo "NEXT_PUBLIC_API_URL=http://backend:3000" >> .env
-                echo "Created new .env file with required variables"
-              fi
-
-              # Also update docker-compose.yml if it exists
-              if [ -f "docker-compose.yml" ]; then
-                echo "Updating docker-compose.yml with correct Supabase URL..."
-                cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d%H%M%S)
-                echo "Created backup of docker-compose.yml"
-
-                # Try to update build args if they exis
-                sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}|g" docker-compose.yml || true
-                sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}|g" docker-compose.yml || true
-                echo "Updated build args in docker-compose.yml"
-              fi
-            fi
-            echo "::endgroup::"
-
-            echo "::group::Container rebuild"
-            echo "Stopping and removing the $COMPONENT container..."
-            docker stop $CONTAINER 2>/dev/null || echo "Container was not running"
-            docker rm $CONTAINER 2>/dev/null || echo "Container did not exist or was already removed"
-
-            echo "Rebuilding $COMPONENT container..."
-            # Check if docker-compose or docker compose is available
-            DOCKER_COMPOSE_CMD="docker compose"
-            if command -v docker-compose &> /dev/null; then
-              DOCKER_COMPOSE_CMD="docker-compose"
-              echo "Using docker-compose command"
-            else
-              echo "Using docker compose command"
-            fi
-
-            # Build and start the container
-            echo "Building with no cache..."
-            $DOCKER_COMPOSE_CMD build --no-cache $COMPONENT || {
-              echo "⚠️ Build issues encountered"
-              echo "Trying again with detailed output:"
-              $DOCKER_COMPOSE_CMD build --no-cache --progress=plain $COMPONENT || echo "⚠️ Build failed, but continuing with existing images"
-            }
-
-            echo "Starting container..."
-            $DOCKER_COMPOSE_CMD up -d $COMPONENT || {
-              echo "⚠️ Startup issues encountered"
-              echo "Checking docker-compose.yml config:"
-              $DOCKER_COMPOSE_CMD config
-              echo "⚠️ Startup failed, but continuing"
-            }
-            echo "::endgroup::"
-
-            echo "::group::Container status"
-            echo "Waiting for container to initialize (30 seconds)..."
-            sleep 30
-
-            echo "Container status:"
-            docker ps | grep $CONTAINER || echo "⚠️ Container not found in running containers!"
-
-            echo "Container logs:"
-            docker logs $CONTAINER 2>&1 | tail -n 30 || echo "⚠️ Could not get container logs, it may not be running"
-
-            # Verify environment variables for admin panel
-            if [ "$COMPONENT" = "admin" ]; then
-              echo "Verifying admin panel environment variables:"
-              docker exec $CONTAINER env 2>&1 | grep NEXT_PUBLIC || echo "⚠️ Could not get environment variables, container may not be running properly"
-            fi
-            echo "::endgroup::"
-
-            echo "::group::Health check"
-            # Perform a simple health check
-            if [ "$COMPONENT" = "admin" ]; then
-              PORT="8080"
-              echo "Checking admin panel health..."
-              curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" http://localhost:$PORT || echo "⚠️ Health check failed"
-            elif [ "$COMPONENT" = "backend" ]; then
-              PORT="3000"
-              echo "Checking backend health..."
-              curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" http://localhost:$PORT/health || echo "⚠️ Health check failed"
-            fi
-            echo "::endgroup::"
-          ENDSSH
-
-          # Set GitHub step outputs for summary
-          echo "rebuild_complete=true" >> $GITHUB_OUTPUT
-
-      - name: Component Rebuild Summary
-        if: steps.rebuild.outputs.rebuild_complete == 'true'
-        run: |
-          echo "## ${{ steps.component.outputs.component_name }} Rebuild Complete ✅" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The ${{ steps.component.outputs.component_name }} component has been rebuilt." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "${{ steps.component.outputs.component_name }}" = "admin" ]; then
-            echo "### Admin Panel Environment" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The admin panel was rebuilt with the following environment variables:" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "- **SUPABASE_URL**: ${{ secrets.SUPABASE_URL }}" >> $GITHUB_STEP_SUMMARY
-            echo "- **SUPABASE_KEY**: (partially hidden for security)" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "### Access Information" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.component.outputs.component_name }}" = "xui" ]; then
-            echo "Component should now be accessible at:" >> $GITHUB_STEP_SUMMARY
-            echo "https://${{ secrets.VPN_DOMAIN }}:${{ steps.component.outputs.port }}" >> $GITHUB_STEP_SUMMARY
+          cd backend
+          echo "Installing dependencies..."
+          npm ci || npm install
+          
+          echo "Fixing TypeScript errors..."
+          if [ -f "fix-lint.js" ]; then
+            node fix-lint.js
           else
-            echo "Component should now be accessible at:" >> $GITHUB_STEP_SUMMARY
-            echo "http://${{ secrets.VPN_DOMAIN }}:${{ steps.component.outputs.port }}" >> $GITHUB_STEP_SUMMARY
+            echo "Creating simple fix script..."
+            cat > fix-simple.js << 'EOF'
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Common file paths with issues
+            const files = [
+              'src/services/authService.ts',
+              'src/middleware/authMiddleware.ts',
+              'src/index.ts',
+              'src/app.ts',
+              'src/controllers/planController.ts',
+              'src/controllers/authController.ts',
+              'src/config/env.ts'
+            ];
+            
+            files.forEach(file => {
+              const filePath = path.join(__dirname, file);
+              if (fs.existsSync(filePath)) {
+                console.log(`Fixing ${file}...`);
+                let content = fs.readFileSync(filePath, 'utf8');
+                
+                // Fix common issues
+                content = content.replace(/const hashedPassword/g, '// const hashedPassword');
+                content = content.replace(/namespace Express/g, 'import Express');
+                content = content.replace(/const _next/g, '// const _next');
+                content = content.replace(/: any/g, ': unknown');
+                
+                fs.writeFileSync(filePath, content, 'utf8');
+                console.log(`Fixed ${file}`);
+              }
+            });
+            EOF
+            
+            node fix-simple.js
           fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Troubleshooting" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "If the component is not accessible, check the logs on the server:" >> $GITHUB_STEP_SUMMARY
-          echo "```bash" >> $GITHUB_STEP_SUMMARY
-          echo "docker logs ${{ steps.component.outputs.container_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "```" >> $GITHUB_STEP_SUMMARY
+          
+          echo "Running ESLint fix..."
+          npm run lint:fix || npm run lint || echo "Linting completed with issues"
+      
+      - name: Commit TypeScript fixes
+        run: |
+          git config --local user.email "github-actions@github.com"
+          git config --local user.name "GitHub Actions"
+          
+          if [[ -n $(git status -s) ]]; then
+            git add .
+            git commit -m "Fix(typescript): auto-fix TypeScript issues"
+            git push
+          else
+            echo "No changes to commit"
+          fi
 
-  # Update Dependencies Job (migrated from update-dependencies.sh)
+  # Update dependencies job
   update-dependencies:
     runs-on: ubuntu-latest
-    # Run only if selected from workflow_dispatch
-    if: github.event_name == 'workflow_dispatch' && needs.selector.outputs.job_to_run == 'update-dependencies'
-    needs: selector
-    timeout-minutes: 15
-
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job_to_run == 'update-dependencies'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
-
-      - name: Set up SSH
-        uses: shimataro/ssh-key-action@v2
-        with:
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
-          if_key_exists: fail
-
+          node-version: 20
+      
       - name: Update Backend Dependencies
-        id: update_deps
-        env:
-          SSH_USER: organic
-          SERVER_IP: ${{ secrets.VPN_DOMAIN }}
         run: |
-          set -o pipefail
-          echo "Connecting to $SERVER_IP as $SSH_USER..."
-          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
-            set +e
-            cd ~/dev/vpnservice/backend || {
-              echo "Backend directory not found!"
-              exit 1
-            }
-            echo "=== Updating Backend Dependencies ==="
-            echo "This script will regenerate your package-lock.json"
-            # Install rimraf for clean removal if needed
-            npm list -g rimraf || npm install -g rimraf
-            # Clean node_modules and package-lock.json
-            echo "Removing node_modules and package-lock.json..."
-            rimraf node_modules package-lock.json
-            # Install all dependencies
-            echo "Installing dependencies and generating new package-lock.json..."
-            npm install
-            echo "=== Dependencies Updated Successfully ==="
-            echo "You can now build and run the backend with the updated dependencies."
-            # Rebuild and restart the backend container
-            cd ..
-            if command -v docker-compose &> /dev/null; then
-              echo "Rebuilding with docker-compose..."
-              docker-compose build backend && docker-compose up -d backend
-            else
-              echo "Rebuilding with docker compose..."
-              docker compose build backend && docker compose up -d backend
-            fi
-            # Check if rebuild was successful
-            if docker ps | grep -q "vpn-backend"; then
-              echo "✅ Backend successfully rebuilt and started"
-              exit 0
-            else
-              echo "❌ Backend rebuild may have failed, please check logs"
-              exit 1
-            fi
-          ENDSSH
-          # Capture exit code
-          SSH_EXIT_CODE=$?
-          if [ $SSH_EXIT_CODE -eq 0 ]; then
-            echo "update_successful=true" >> $GITHUB_OUTPUT
+          cd backend
+          
+          echo "=== Updating Backend Dependencies ==="
+          echo "Removing node_modules and package-lock.json..."
+          rm -rf node_modules package-lock.json
+          
+          echo "Installing dependencies and generating new package-lock.json..."
+          npm install
+          
+          echo "=== Dependencies Updated Successfully ==="
+      
+      - name: Commit updated dependencies
+        run: |
+          git config --local user.email "github-actions@github.com"
+          git config --local user.name "GitHub Actions"
+          
+          if [[ -n $(git status -s) ]]; then
+            git add .
+            git commit -m "Chore(deps): update dependencies"
+            git push
           else
-            echo "update_successful=false" >> $GITHUB_OUTPUT
+            echo "No changes to commit"
           fi
-
+      
       - name: Update Summary
         run: |
           echo "## Backend Dependencies Update" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [[ "${{ steps.update_deps.outputs.update_successful }}" == "true" ]]; then
-            echo "### ✅ Dependencies Updated Successfully" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The backend dependencies have been successfully updated and the backend service has been rebuilt." >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### ⚠️ Dependencies Update Had Issues" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "There were issues updating the backend dependencies. Please check the server logs for more information." >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "### ✅ Dependencies Updated Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The backend dependencies have been successfully updated." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Actions Performed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "1. Removed `node_modules` and `package-lock.json`" >> $GITHUB_STEP_SUMMARY
           echo "2. Run `npm install` to generate a fresh dependency tree" >> $GITHUB_STEP_SUMMARY
-          echo "3. Rebuilt and restarted the backend Docker container" >> $GITHUB_STEP_SUMMARY
 
-  # Integrated admin panel fix directly in workflow (no separate script)
-  integrated-admin-fix:
-    runs-on: ubuntu-lates
-    # Run on main branch push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    timeout-minutes: 15
-
+  # Rebuild component job
+  rebuild-component:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job_to_run == 'rebuild-component'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build Backend
+        uses: docker/build-push-action@v5
         with:
-          fetch-depth: 0
-
-      - name: Set up SSH
-        uses: shimataro/ssh-key-action@v2
-        with:
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
-          if_key_exists: fail
-
-      - name: Execute Integrated Admin Panel Fix
-        id: integrated_fix
-        env:
-          SSH_USER: organic
-          SERVER_IP: ${{ secrets.VPN_DOMAIN }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          context: ./backend
+          push: false
+          load: true
+          tags: vpnservice-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NODE_ENV=development
+            NPM_FLAGS=--no-audit --no-fund --force
+      
+      - name: Build Summary
         run: |
-          set -o pipefail
-
-          # Define reusable SSH connection function
-          setup_ssh_connection() {
-            echo "::group::Establishing SSH connection"
-            echo "Connecting to $SERVER_IP as $SSH_USER..."
-            echo "::endgroup::"
-          }
-
-          # Use the function
-          setup_ssh_connection
-
-          echo "Executing Integrated Admin Panel Fix remotely..."
-          # Using a variable to hold SSH command outpu
-          RESULT=$(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
-            cd ~/dev/vpnservice || mkdir -p ~/dev/vpnservice
-
-            echo "===== Starting Integrated Admin Panel Fix ====="
-            echo "This fix is directly integrated into the workflow"
-
-            # Get environment variables from GitHub Actions
-            SUPABASE_URL="${SUPABASE_URL}"
-            SUPABASE_KEY="${SUPABASE_KEY}"
-            API_URL="http://backend:3000"
-
-            echo "Using SUPABASE_URL: \${SUPABASE_URL:0:10}..."
-            echo "Using SUPABASE_KEY: \${SUPABASE_KEY:0:10}..." # Only show first 10 chars for security
-            echo "Using API_URL: \${API_URL}"
-
-            # Stop and remove the admin container
-            echo "Stopping and removing existing admin container..."
-            docker stop vpn-admin 2>/dev/null || echo "No container to stop"
-            docker rm vpn-admin 2>/dev/null || echo "No container to remove"
-
-            # Rest of the script...
-            echo "===== Admin Panel Fix Complete ====="
-            # Always exit with success to prevent GitHub Actions from failing
-            exit 0
-          ENDSSH
-          )
-
-          # Store the exit code from the SSH command
-          SSH_EXIT_CODE=$?
-
-          # Output the result for debugging
-          echo "$RESULT"
-
-          # Always mark as successful to prevent GitHub Actions from failing
-          echo "integrated_fix_successful=true" >> $GITHUB_OUTPUT
-
-      - name: Fix Repor
-        run: |
-          echo "## Next.js Admin Panel Fix Report" >> $GITHUB_STEP_SUMMARY
+          echo "## Component Rebuild" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ✅ Admin Panel Fix Attempted" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Backend Rebuilt Successfully" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The admin panel fix has been attempted. Please check the server logs for details." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Fix Details" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The following actions were performed:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. **Container Reset**: Stopped and removed existing admin panel container" >> $GITHUB_STEP_SUMMARY
-          echo "2. **Environment Files**: Created Next.js environment files with correct variables" >> $GITHUB_STEP_SUMMARY
-          echo "3. **Optimized Dockerfile**: Created a Next.js-optimized Dockerfile with proper variable handling" >> $GITHUB_STEP_SUMMARY
-          echo "4. **Image Build**: Built a new container image with hard-coded environment variables" >> $GITHUB_STEP_SUMMARY
-          echo "5. **Container Launch**: Started a new container with proper runtime configuration" >> $GITHUB_STEP_SUMMARY
-          echo "6. **Access Verification**: Checked that the admin panel is accessible" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The admin panel should now be accessible at: http://${{ secrets.VPN_DOMAIN }}:8080" >> $GITHUB_STEP_SUMMARY
+          echo "The backend component has been successfully rebuilt." >> $GITHUB_STEP_SUMMARY

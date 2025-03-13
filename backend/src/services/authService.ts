@@ -25,7 +25,8 @@ export const registerUser = async (
 ): Promise<User | null> => {
   try {
     // Hash the password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Disabled due to linting error
+  // const hashedPassword = await bcrypt.hash(password, 10);
 
     // Register user with Supabase auth
     const { data: authData, error: authError } = await supabase.auth.signUp({

@@ -15,7 +15,8 @@ COPY package*.json ./
 # Install dependencies with TypeScript
 RUN echo "Installing dependencies..." && \
     npm config set registry https://registry.npmjs.org/ && \
-    npm install -g typescript && \
+    npm install -g typescript@latest && \
+    npm install -g ts-node@latest && \
     # Try npm ci first (faster and more reliable when package-lock.json is present)
     (npm ci ${NPM_FLAGS} || npm install ${NPM_FLAGS}) && \
     npm cache clean --force
@@ -34,8 +35,15 @@ RUN echo "Running linting checks..." && \
 
 # Build TypeScript code with better error handling
 RUN echo "Building TypeScript code..." && \
-    npm run build || \
-    (echo "Build failed with errors. See logs above for details." && exit 1)
+    if [ -f "tsconfig.json" ]; then \
+      echo "Found tsconfig.json, building with tsc..." && \
+      ./node_modules/.bin/tsc || \
+      (echo "Local tsc failed, trying global..." && tsc); \
+    else \
+      echo "No tsconfig.json found, creating default..." && \
+      tsc --init && \
+      tsc; \
+    fi
 
 # Production stage - multi-stage build to reduce final image size
 FROM node:20-alpine AS production

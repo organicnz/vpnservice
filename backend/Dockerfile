@@ -12,9 +12,10 @@ ARG NPM_FLAGS="--no-audit --no-fund"
 # Copy package files to leverage Docker's caching
 COPY package*.json ./
 
-# Install dependencies with a more streamlined approach
+# Install dependencies with TypeScript
 RUN echo "Installing dependencies..." && \
     npm config set registry https://registry.npmjs.org/ && \
+    npm install -g typescript && \
     # Try npm ci first (faster and more reliable when package-lock.json is present)
     (npm ci ${NPM_FLAGS} || npm install ${NPM_FLAGS}) && \
     npm cache clean --force

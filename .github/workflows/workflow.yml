@@ -1020,6 +1020,98 @@ jobs:
           echo "docker logs ${{ steps.component.outputs.container_name }}" >> $GITHUB_STEP_SUMMARY
           echo "```" >> $GITHUB_STEP_SUMMARY
 
+  # Update Dependencies Job (migrated from update-dependencies.sh)
+  update-dependencies:
+    runs-on: ubuntu-latest
+    # Run only when explicitly triggered via workflow_dispatch
+    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up SSH
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          if_key_exists: fail
+
+      - name: Update Backend Dependencies
+        id: update_deps
+        env:
+          SSH_USER: organic
+          SERVER_IP: ${{ secrets.VPN_DOMAIN }}
+        run: |
+          set -o pipefail
+          echo "Connecting to $SERVER_IP as $SSH_USER..."
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
+            set +e
+            cd ~/dev/vpnservice/backend || {
+              echo "Backend directory not found!"
+              exit 1
+            }
+            echo "=== Updating Backend Dependencies ==="
+            echo "This script will regenerate your package-lock.json"
+            # Install rimraf for clean removal if needed
+            npm list -g rimraf || npm install -g rimraf
+            # Clean node_modules and package-lock.json
+            echo "Removing node_modules and package-lock.json..."
+            rimraf node_modules package-lock.json
+            # Install all dependencies
+            echo "Installing dependencies and generating new package-lock.json..."
+            npm install
+            echo "=== Dependencies Updated Successfully ==="
+            echo "You can now build and run the backend with the updated dependencies."
+            # Rebuild and restart the backend container
+            cd ..
+            if command -v docker-compose &> /dev/null; then
+              echo "Rebuilding with docker-compose..."
+              docker-compose build backend && docker-compose up -d backend
+            else
+              echo "Rebuilding with docker compose..."
+              docker compose build backend && docker compose up -d backend
+            fi
+            # Check if rebuild was successful
+            if docker ps | grep -q "vpn-backend"; then
+              echo "✅ Backend successfully rebuilt and started"
+              exit 0
+            else
+              echo "❌ Backend rebuild may have failed, please check logs"
+              exit 1
+            fi
+          ENDSSH
+          # Capture exit code
+          SSH_EXIT_CODE=$?
+          if [ $SSH_EXIT_CODE -eq 0 ]; then
+            echo "update_successful=true" >> $GITHUB_OUTPUT
+          else
+            echo "update_successful=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update Summary
+        run: |
+          echo "## Backend Dependencies Update" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ steps.update_deps.outputs.update_successful }}" == "true" ]]; then
+            echo "### ✅ Dependencies Updated Successfully" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The backend dependencies have been successfully updated and the backend service has been rebuilt." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ Dependencies Update Had Issues" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "There were issues updating the backend dependencies. Please check the server logs for more information." >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Actions Performed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Removed `node_modules` and `package-lock.json`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Run `npm install` to generate a fresh dependency tree" >> $GITHUB_STEP_SUMMARY
+          echo "3. Rebuilt and restarted the backend Docker container" >> $GITHUB_STEP_SUMMARY
+
   # Integrated admin panel fix directly in workflow (no separate script)
   integrated-admin-fix:
     runs-on: ubuntu-latest

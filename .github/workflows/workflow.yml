@@ -423,10 +423,22 @@ jobs:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          GIT_USERNAME: ${{ secrets.GIT_USERNAME || github.actor }}
+          GIT_TOKEN: ${{ secrets.GIT_TOKEN || github.token }}
         run: |
           echo "Deploying to production server..."
           ssh $SERVER_USER@$SERVER_HOST << 'ENDSSH'
             cd $DEPLOY_PATH
+            # Determine if using HTTPS or SSH for git remote
+            REMOTE_URL=$(git remote get-url origin)
+            IS_HTTPS=$(echo $REMOTE_URL | grep -c "https://")
+            # Configure git credentials if using HTTPS
+            if [ $IS_HTTPS -eq 1 ]; then
+              # Store credentials temporarily
+              git config credential.helper 'store --file=.git/credentials'
+              echo "https://${GIT_USERNAME}:${GIT_TOKEN}@github.com" > .git/credentials
+              chmod 600 .git/credentials
+            fi
             # Set up git configuration for proper handling of divergent branches
             git config pull.rebase true
             # Ensure we're on the main branch
@@ -437,6 +449,11 @@ jobs:
             git pull origin main
             # Apply stashed changes if any were stashed
             git stash list | grep -q "stash@{0}" && git stash pop || echo "No stashed changes to apply"
+            # Clean up credentials if using HTTPS
+            if [ $IS_HTTPS -eq 1 ]; then
+              rm -f .git/credentials
+              git config --unset credential.helper
+            fi
             echo "Rebuilding services..."
             docker-compose build --no-cache backend admin
             echo "Restarting services..."

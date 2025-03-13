@@ -8,18 +8,16 @@ WORKDIR /app
 # Copy package files to leverage Docker's caching
 COPY package*.json ./
 
-# Install dependencies with a more resilient approach
-RUN if [ -s package-lock.json ] && grep -q "lockfileVersion" package-lock.json; then \
-      echo "Valid package-lock.json found, using npm ci"; \
-      npm ci --only=production --no-audit --no-fund; \
-    else \
-      echo "No valid package-lock.json found, using npm install"; \
-      npm install --omit=dev --no-audit --no-fund; \
-    fi && \
+# Install dependencies with a more resilient approach - using install always
+RUN echo "Installing dependencies with npm install" && \
+    npm install --no-audit --no-fund && \
     npm cache clean --force
 
 # Copy application code
 COPY . .
+
+# Build TypeScript code
+RUN npm run build
 
 # Production stage - multi-stage build to reduce final image size
 FROM node:20-alpine AS production
@@ -34,7 +32,7 @@ WORKDIR /app
 # Copy only the necessary files from the build stage
 COPY --from=build /app/package.json .
 COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/src ./src
+COPY --from=build /app/dist ./dist
 
 # Create logs directory with proper permissions
 RUN mkdir -p logs && \
@@ -65,4 +63,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:3000/health || exit 1
 
 # Start the application
-CMD ["node", "src/index.js"] 
+CMD ["node", "dist/index.js"] 

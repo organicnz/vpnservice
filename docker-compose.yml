@@ -56,6 +56,8 @@ services:
       dockerfile: Dockerfile
       args:
         - NODE_ENV=production
+        - JWT_SECRET=${JWT_SECRET:-your-secret-key}
+        - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1d}
     container_name: vpn-backend
     restart: unless-stopped
     environment:
@@ -67,6 +69,8 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - NODE_ENV=${NODE_ENV:-production}
       - PORT=3000
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1d}
       # Performance tuning
       - NODE_OPTIONS=--max-old-space-size=512
     ports:
@@ -91,13 +95,15 @@ services:
         condition: on-failure
         max_attempts: 3
         window: 120s
-    read_only: true
+    read_only: false # Need write access for logs directory
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     tmpfs:
       - /tmp
+    volumes:
+      - ./backend/logs:/app/logs:rw
 
   # Admin Panel
   admin:

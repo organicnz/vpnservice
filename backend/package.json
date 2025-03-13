@@ -2,12 +2,16 @@
   "name": "vpn-subscription-backend",
   "version": "1.0.0",
   "description": "Backend service for VPN subscription service with Telegram bot integration and Supabase",
-  "main": "src/index.js",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev --respawn src/index.ts",
+    "build": "tsc",
     "test": "jest --passWithNoTests",
-    "lint": "echo 'No linting configured yet - passing check' && exit 0"
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "prepare": "npm run build",
+    "prestart": "npm run build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.5",
@@ -22,9 +26,26 @@
     "winston": "^3.11.0"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.5",
+    "@types/cors": "^2.8.15",
+    "@types/express": "^4.17.20",
+    "@types/jest": "^29.5.8",
+    "@types/jsonwebtoken": "^9.0.4",
+    "@types/node": "^20.8.10",
+    "@types/node-telegram-bot-api": "^0.63.0",
+    "@typescript-eslint/eslint-plugin": "^6.14.0",
+    "@typescript-eslint/parser": "^6.14.0",
+    "eslint": "^8.55.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-prettier": "^5.0.1",
     "jest": "^29.7.0",
     "nodemon": "^3.0.1",
-    "supertest": "^6.3.3"
+    "prettier": "^3.0.3",
+    "supertest": "^6.3.3",
+    "ts-jest": "^29.1.1",
+    "ts-node": "^10.9.1",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.2.2"
   },
   "engines": {
     "node": ">=20.0.0"

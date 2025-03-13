@@ -15,10 +15,10 @@ COPY package*.json ./
 # Install dependencies with TypeScript
 RUN echo "Installing dependencies..." && \
     npm config set registry https://registry.npmjs.org/ && \
+    # Install dependencies first
+    npm ci || npm install && \
+    # Install TypeScript globally for the build stage
     npm install -g typescript@latest && \
-    npm install -g ts-node@latest && \
-    # Try npm ci first (faster and more reliable when package-lock.json is present)
-    (npm ci ${NPM_FLAGS} || npm install ${NPM_FLAGS}) && \
     npm cache clean --force
 
 # Copy application code
@@ -37,12 +37,11 @@ RUN echo "Running linting checks..." && \
 RUN echo "Building TypeScript code..." && \
     if [ -f "tsconfig.json" ]; then \
       echo "Found tsconfig.json, building with tsc..." && \
-      ./node_modules/.bin/tsc || \
-      (echo "Local tsc failed, trying global..." && tsc); \
+      npx tsc || exit 1; \
     else \
       echo "No tsconfig.json found, creating default..." && \
-      tsc --init && \
-      tsc; \
+      npx tsc --init && \
+      npx tsc || exit 1; \
     fi
 
 # Production stage - multi-stage build to reduce final image size
@@ -56,10 +55,11 @@ RUN addgroup -S nodeapp && \
 WORKDIR /app
 
 # Copy only the necessary files from the build stage
-COPY --from=build /app/package.json .
-COPY --from=build /app/package-lock.json* ./
+COPY --from=build /app/package*.json ./
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/node_modules ./node_modules
+
+# Install only production dependencies
+RUN npm ci --only=production || npm install --only=production
 
 # Create logs directory with proper permissions
 RUN mkdir -p logs && \
@@ -70,12 +70,6 @@ RUN mkdir -p logs && \
 RUN echo "fs.file-max = 65535" > /etc/sysctl.conf && \
     echo "net.ipv4.ip_local_port_range = 1024 65000" >> /etc/sysctl.conf && \
     echo "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.conf
-
-# Install security audit tools only in production
-RUN if [ "$NODE_ENV" = "production" ]; then \
-      npm i -g npm-audit-ci && \
-      npm-audit-ci || echo "Security audit completed with warnings"; \
-    fi
 
 # Performance tuning with environment variables
 ENV NODE_ENV=production \

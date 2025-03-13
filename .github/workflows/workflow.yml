@@ -6,288 +6,186 @@ on:
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
-    inputs:
-      job_to_run:
-        description: 'Job to run'
-        required: true
-        default: 'fix-typescript'
-        type: choice
-        options:
-        - fix-typescript
-        - update-dependencies
-        - rebuild-component
+    inputs: {}
 
 permissions:
   contents: write  # Needed for pushing fixes
 
-# Enforce stronger concurrency control
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
-  cancel-in-progress: true
-
 jobs:
-  # Detect repository type and always run
-  detect:
-    runs-on: ubuntu-latest
-    outputs:
-      repo_type: ${{ steps.detect.outputs.repo_type }}
+  # Always run on all events
+  check:
+    runs-on: ubuntu-lates
     steps:
-      - uses: actions/checkout@v4
-      - id: detect
-        run: |
-          echo "Running detection step to determine repository configuration..."
-          if [ -d "backend" ] && [ -d "admin-panel" ]; then
-            echo "repo_type=full" >> $GITHUB_OUTPUT
-            echo "Detected full repository with backend and admin-panel"
-          elif [ -d "backend" ]; then
-            echo "repo_type=backend" >> $GITHUB_OUTPUT
-            echo "Detected backend-only repository"
-          elif [ -d "admin-panel" ]; then
-            echo "repo_type=admin" >> $GITHUB_OUTPUT
-            echo "Detected admin-panel-only repository"
-          else
-            echo "repo_type=unknown" >> $GITHUB_OUTPUT
-            echo "Unable to determine repository type"
-          fi
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  # Linting job for backend
-  lint-backend:
-    needs: detect
-    if: needs.detect.outputs.repo_type == 'full' || needs.detect.outputs.repo_type == 'backend'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./backend
+      - name: Display event info
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Branch: ${{ github.ref }}"
+
+  # Linting job
+  lint:
+    runs-on: ubuntu-lates
+    # Run on push/PR events
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-      
-      - name: Install dependencies
-        run: npm ci || npm install
-        
-      - name: Run linting
-        run: npm run lint || echo "Linting failed but continuing"
-      
-      - name: Auto-fix linting issues
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+      - name: Backend Linting
+        if: hashFiles('backend/package.json') != ''
         run: |
-          if [ -f "fix-lint.js" ]; then
-            echo "Running auto-fix script..."
-            node fix-lint.js || echo "Fix script completed with warnings"
-            
-            # Check if there are changes to commit
-            cd $GITHUB_WORKSPACE
-            git config --local user.email "github-actions@github.com"
-            git config --local user.name "GitHub Actions"
-            
-            if [[ -n $(git status -s) ]]; then
-              git add .
-              git commit -m "Fix(lint): auto-fix linting issues in backend"
-              git push
-            else
-              echo "No changes to commit"
-            fi
-          else
-            echo "No fix-lint.js script found"
-          fi
+          cd backend
+          npm ci || npm install
+          npm run lint || echo "Linting issues found but continuing"
+
+      - name: Admin Panel Linting
+        if: hashFiles('admin-panel/package.json') != ''
+        run: |
+          cd admin-panel
+          npm ci || npm install
+          npm run lint || echo "Linting issues found but continuing"
 
   # Build job
   build:
-    needs: detect
-    if: github.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-lates
+    # Run on push/PR events
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
       - name: Build backend image
-        if: needs.detect.outputs.repo_type == 'full' || needs.detect.outputs.repo_type == 'backend'
+        if: hashFiles('backend/Dockerfile') != ''
         uses: docker/build-push-action@v5
         with:
           context: ./backend
           push: false
           load: true
-          tags: vpnservice-backend:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: vpnservice-backend:lates
           build-args: |
-            NODE_ENV=development
+            NODE_ENV=developmen
             NPM_FLAGS=--no-audit --no-fund --force
-      
+
       - name: Build admin panel image
-        if: needs.detect.outputs.repo_type == 'full' || needs.detect.outputs.repo_type == 'admin'
+        if: hashFiles('admin-panel/Dockerfile') != ''
         uses: docker/build-push-action@v5
         with:
           context: ./admin-panel
           push: false
           load: true
-          tags: vpnservice-admin:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: vpnservice-admin:lates
 
-  # Fix TypeScript issues job
+  # Fix TypeScript issues
   fix-typescript:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job_to_run == 'fix-typescript'
+    runs-on: ubuntu-lates
+    # Only run on workflow_dispatch
+    if: github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-      
-      - name: Fix TypeScript Errors
+
+      - name: Fix TypeScript issues
         run: |
           cd backend
-          echo "Installing dependencies..."
           npm ci || npm install
-          
-          echo "Fixing TypeScript errors..."
+
           if [ -f "fix-lint.js" ]; then
-            node fix-lint.js
-          else
-            echo "Creating simple fix script..."
-            cat > fix-simple.js << 'EOF'
-            const fs = require('fs');
-            const path = require('path');
-            
-            // Common file paths with issues
-            const files = [
-              'src/services/authService.ts',
-              'src/middleware/authMiddleware.ts',
-              'src/index.ts',
-              'src/app.ts',
-              'src/controllers/planController.ts',
-              'src/controllers/authController.ts',
-              'src/config/env.ts'
-            ];
-            
-            files.forEach(file => {
-              const filePath = path.join(__dirname, file);
-              if (fs.existsSync(filePath)) {
-                console.log(`Fixing ${file}...`);
-                let content = fs.readFileSync(filePath, 'utf8');
-                
-                // Fix common issues
-                content = content.replace(/const hashedPassword/g, '// const hashedPassword');
-                content = content.replace(/namespace Express/g, 'import Express');
-                content = content.replace(/const _next/g, '// const _next');
-                content = content.replace(/: any/g, ': unknown');
-                
-                fs.writeFileSync(filePath, content, 'utf8');
-                console.log(`Fixed ${file}`);
-              }
-            });
-            EOF
-            
-            node fix-simple.js
-          fi
-          
-          echo "Running ESLint fix..."
-          npm run lint:fix || npm run lint || echo "Linting completed with issues"
-      
-      - name: Commit TypeScript fixes
-        run: |
-          git config --local user.email "github-actions@github.com"
-          git config --local user.name "GitHub Actions"
-          
-          if [[ -n $(git status -s) ]]; then
-            git add .
-            git commit -m "Fix(typescript): auto-fix TypeScript issues"
-            git push
-          else
-            echo "No changes to commit"
+            node fix-lint.js || echo "Fix script completed with warnings"
           fi
 
-  # Update dependencies job
+          npm run lint:fix || echo "Linting fix completed with issues"
+
+      - name: Check for changes
+        id: git-check
+        run: |
+          if [[ -n $(git status -s) ]]; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit changes
+        if: steps.git-check.outputs.changes == 'true'
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add .
+          git commit -m "Fix(typescript): auto-fix TypeScript linting issues"
+          git push
+
+  # Update dependencies
   update-dependencies:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job_to_run == 'update-dependencies'
+    runs-on: ubuntu-lates
+    # Only run on workflow_dispatch
+    if: github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-      
-      - name: Update Backend Dependencies
+
+      - name: Update backend dependencies
         run: |
           cd backend
-          
-          echo "=== Updating Backend Dependencies ==="
-          echo "Removing node_modules and package-lock.json..."
           rm -rf node_modules package-lock.json
-          
-          echo "Installing dependencies and generating new package-lock.json..."
           npm install
-          
-          echo "=== Dependencies Updated Successfully ==="
-      
-      - name: Commit updated dependencies
-        run: |
-          git config --local user.email "github-actions@github.com"
-          git config --local user.name "GitHub Actions"
-          
-          if [[ -n $(git status -s) ]]; then
-            git add .
-            git commit -m "Chore(deps): update dependencies"
-            git push
-          else
-            echo "No changes to commit"
-          fi
-      
-      - name: Update Summary
-        run: |
-          echo "## Backend Dependencies Update" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ✅ Dependencies Updated Successfully" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The backend dependencies have been successfully updated." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Actions Performed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. Removed `node_modules` and `package-lock.json`" >> $GITHUB_STEP_SUMMARY
-          echo "2. Run `npm install` to generate a fresh dependency tree" >> $GITHUB_STEP_SUMMARY
 
-  # Rebuild component job
+      - name: Check for changes
+        id: git-check
+        run: |
+          if [[ -n $(git status -s) ]]; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit changes
+        if: steps.git-check.outputs.changes == 'true'
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add .
+          git commit -m "Chore(deps): update backend dependencies"
+          git push
+
+  # Rebuild componen
   rebuild-component:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job_to_run == 'rebuild-component'
+    runs-on: ubuntu-lates
+    # Only run on workflow_dispatch
+    if: github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
-      - name: Build Backend
+
+      - name: Build backend image
+        if: hashFiles('backend/Dockerfile') != ''
         uses: docker/build-push-action@v5
         with:
           context: ./backend
           push: false
           load: true
-          tags: vpnservice-backend:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: vpnservice-backend:lates
           build-args: |
-            NODE_ENV=development
-            NPM_FLAGS=--no-audit --no-fund --force
-      
-      - name: Build Summary
-        run: |
-          echo "## Component Rebuild" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ✅ Backend Rebuilt Successfully" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The backend component has been successfully rebuilt." >> $GITHUB_STEP_SUMMARY
+            NODE_ENV=developmen
+            NPM_FLAGS=--no-audit --no-fund --force --ignore-scripts

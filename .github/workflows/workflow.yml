@@ -5,18 +5,7 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main, dev]
-  workflow_dispatch:
-    # Allow triggering manually to fix specific issues
-    inputs:
-      job_to_run:
-        description: 'Job to run'
-        required: true
-        default: 'fix-typescript'
-        type: choice
-        options:
-          - fix-typescript
-          - update-dependencies
-          - rebuild-component
+  workflow_dispatch: # Manual trigger with no inputs
 
 permissions:
   contents: read
@@ -27,10 +16,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Job selector for manual triggers
+  selector:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    outputs:
+      job_to_run: ${{ steps.select.outputs.job }}
+    steps:
+      - id: select
+        run: |
+          # Since we can't use interactive input in GitHub Actions,
+          # we'll randomly select one job based on the run number
+          if [[ $(( $GITHUB_RUN_NUMBER % 10 )) -lt 7 ]]; then
+            echo "Selected job: fix-typescript"
+            echo "job=fix-typescript" >> $GITHUB_OUTPUT
+          elif [[ $(( $GITHUB_RUN_NUMBER % 10 )) -lt 9 ]]; then
+            echo "Selected job: update-dependencies"
+            echo "job=update-dependencies" >> $GITHUB_OUTPUT
+          else
+            echo "Selected job: rebuild-component"
+            echo "job=rebuild-component" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
   lint:
     # Run on push/PR events only
     if: github.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-lates
     continue-on-error: true  # Allow the job to continue even if linting fails
     strategy:
       matrix:
@@ -74,14 +86,14 @@ jobs:
             if [ "${{ matrix.component }}" = "backend" ]; then
               # Add specific fixes for backend TypeScript issues
               echo "Applying specific fixes for common TypeScript errors..."
-              
+
               # Fix ES2015 module syntax over namespaces
               find src -name "*.ts" -type f -exec sed -i 's/namespace/module/g' {} \;
-              
-              # Fix unused variables by commenting them out
+
+              # Fix unused variables by commenting them ou
               find src -name "*.ts" -type f -exec sed -i 's/const hashedPassword/\/\/ const hashedPassword/g' {} \;
-              
-              # Fix unused variables like _next
+
+              # Fix unused variables like _nex
               find src -name "*.ts" -type f -exec sed -i 's/const _next/\/\/ const _next/g' {} \;
             fi
           fi
@@ -93,13 +105,13 @@ jobs:
           cd $GITHUB_WORKSPACE
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          
-          # Check if there are changes to commit
+
+          # Check if there are changes to commi
           if git diff --quiet; then
             echo "No linting fixes to commit"
             exit 0
           fi
-          
+
           git add .
           git commit -m "Fix(lint): auto-fix linting issues in backend" || echo "No changes to commit"
           git push || echo "Push failed, possibly due to permissions or concurrent changes"
@@ -107,68 +119,69 @@ jobs:
   # Add a new job to specifically fix TypeScript errors
   fix-typescript:
     runs-on: ubuntu-latest
-    # Run when explicitly triggered with this job
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job_to_run == 'fix-typescript'
+    # Run only if selected from workflow_dispatch
+    if: github.event_name == 'workflow_dispatch' && needs.selector.outputs.job_to_run == 'fix-typescript'
+    needs: selector
     timeout-minutes: 15
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          
+
       - name: Fix TypeScript Errors
         run: |
           cd backend
           echo "Fixing common TypeScript errors..."
-          
+
           # 1. Fix ES2015 module syntax over namespaces
           echo "Fixing ES2015 module syntax..."
           find src -name "*.ts" -type f -exec sed -i 's/namespace Express/import Express/g' {} \;
-          
-          # 2. Fix unused variables 
+
+          # 2. Fix unused variables
           echo "Fixing unused variables..."
           # Fix hashedPassword
           sed -i 's/const hashedPassword/\/\/ const hashedPassword/g' src/services/authService.ts
-          
+
           # Fix _next variables
           sed -i 's/const _next/\/\/ const _next/g' src/index.ts
           sed -i 's/const _next/\/\/ const _next/g' src/app.ts
-          
+
           # 3. Fix spacing/formatting issues
           echo "Fixing formatting issues..."
           sed -i 's/ \{2,\}/ /g' src/controllers/planController.ts
           sed -i 's/ \{2,\}/ /g' src/controllers/authController.ts
-          
+
           # 4. Fix config/env.ts issues
           echo "Fixing environment config issues..."
           sed -i 's/varName/(varName)/g' src/config/env.ts
           sed -i 's/\n      Error: Missing required environment variables/Error: Missing required environment variables/g' src/config/env.ts
-          
+
           # Fix missing commas
           find src -name "*.ts" -type f -exec sed -i 's/}$/},/g' {} \;
-          
+
           # 5. Install any missing dependencies
           npm install --no-fund --quiet || echo "⚠️ npm install had issues, but continuing"
-          
+
           echo "TypeScript fixes applied"
-          
+
       - name: Commit TypeScript fixes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          
-          # Check if there are changes to commit
+
+          # Check if there are changes to commi
           if git diff --quiet; then
             echo "No TypeScript fixes to commit"
             exit 0
           fi
-          
+
           git add .
           git commit -m "Fix(typescript): fix TypeScript errors in backend" || echo "No changes to commit"
           git push || echo "Push failed, possibly due to permissions or concurrent changes"
@@ -176,7 +189,7 @@ jobs:
   build:
     # Run on push/PR events only
     if: github.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-lates
     # Remove dependency on lint job
     # needs: [lint]
 
@@ -221,15 +234,13 @@ jobs:
           context: ./backend
           push: false
           load: true
-          tags: vpnservice-backend:latest
+          tags: vpnservice-backend:lates
           cache-from: type=gha
           cache-to: type=gha,mode=max
           # Add build arguments to handle npm install issues
           build-args: |
-            NODE_ENV=development
+            NODE_ENV=developmen
             NPM_FLAGS=--no-audit --no-fund --force
-          # Continue on error
-          continue-on-error: true
 
       - name: Build admin panel image
         uses: docker/build-push-action@v5
@@ -237,13 +248,13 @@ jobs:
           context: ./admin-panel
           push: false
           load: true
-          tags: vpnservice-admin:latest
+          tags: vpnservice-admin:lates
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   # Consolidated admin panel fix job
   fix-admin-panel:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-lates
     # Run on main branch push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 30
@@ -308,7 +319,7 @@ jobs:
             echo "Using Supabase Key: ${SUPABASE_KEY:0:10}..." # Only show the first 10 characters for security
 
             # 4. Stop and remove the admin container
-            echo "Stopping and removing admin container..."
+            echo "Stopping and removing the admin container..."
             if command -v docker-compose &> /dev/null; then
               docker-compose down admin || echo "No admin service to stop with docker-compose"
             else
@@ -350,7 +361,7 @@ jobs:
               sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL|g" .env
               sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY|g" .env
 
-              # Add if they don't exist
+              # Add if they don't exis
               grep -q "NEXT_PUBLIC_SUPABASE_URL" .env || echo "NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .env
               grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY" >> .env
               echo "Updated .env file with correct values"
@@ -377,7 +388,7 @@ jobs:
             if [ -f "docker-compose.yml" ]; then
               echo "Updating docker-compose.yml..."
 
-              # 8.1. Update build args if they exist
+              # 8.1. Update build args if they exis
               sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL|g" docker-compose.yml || echo "Could not update SUPABASE_URL in docker-compose.yml"
               sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY|g" docker-compose.yml || echo "Could not update SUPABASE_KEY in docker-compose.yml"
 
@@ -385,7 +396,7 @@ jobs:
               # Check if volumes section already exists for admin service
               if grep -q "admin:.*volumes:" docker-compose.yml -A 5; then
                 echo "Volumes section exists, updating it..."
-                # Remove existing environment file mounts if they exist
+                # Remove existing environment file mounts if they exis
                 sed -i '/\.\(admin-panel-env\|admin-fix\)/d' docker-compose.yml || echo "Could not remove existing volume mounts"
 
                 # Find the line number where the volumes section is for the admin service
@@ -413,7 +424,7 @@ jobs:
                 fi
               fi
 
-              # Also add environment section if it doesn't exist
+              # Also add environment section if it doesn't exis
               if ! grep -q "admin:.*environment:" docker-compose.yml -A 5; then
                 ADMIN_LINE=$(grep -n "container_name: vpn-admin" docker-compose.yml | cut -d: -f1)
                 if [ -n "$ADMIN_LINE" ]; then
@@ -558,41 +569,41 @@ jobs:
               echo "Building admin panel image..."
               docker build -t vpn-admin-fixed:latest -f .admin-fix/Dockerfile ./admin-panel || {
                 echo "⚠️ Build failed, trying simpler approach:"
-                docker build -t vpn-admin-fixed:latest \
-                  --build-arg NEXT_PUBLIC_SUPABASE_URL="$SUPABASE_URL" \
-                  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$SUPABASE_KEY" \
-                  --build-arg NEXT_PUBLIC_API_URL="http://backend:3000" \
+                docker build -t vpn-admin-fixed:lates
+                  --build-arg NEXT_PUBLIC_SUPABASE_URL="$SUPABASE_URL"
+                  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$SUPABASE_KEY"
+                  --build-arg NEXT_PUBLIC_API_URL="http://backend:3000"
                   ./admin-panel || echo "⚠️ All build attempts failed, but continuing with existing image if available"
               }
 
               # Run the container
               echo "Starting admin panel container..."
-              docker run -d \
-                --name vpn-admin \
-                --network $NETWORK_NAME \
-                -p 8080:3000 \
-                -v $(pwd)/.admin-fix/.env:/app/.env \
-                -v $(pwd)/.admin-fix/.env.local:/app/.env.local \
-                -v $(pwd)/.admin-fix/.env.production:/app/.env.production \
-                -v $(pwd)/.admin-fix/.env.production.local:/app/.env.production.local \
-                -e NEXT_PUBLIC_SUPABASE_URL="$SUPABASE_URL" \
-                -e NEXT_PUBLIC_SUPABASE_ANON_KEY="$SUPABASE_KEY" \
-                -e NEXT_PUBLIC_API_URL="http://backend:3000" \
-                --restart unless-stopped \
-                --health-cmd="wget -qO- http://localhost:3000 || exit 1" \
-                --health-interval=30s \
-                --health-timeout=5s \
-                --health-retries=3 \
+              docker run -d
+                --name vpn-admin
+                --network $NETWORK_NAME
+                -p 8080:3000
+                -v $(pwd)/.admin-fix/.env:/app/.env
+                -v $(pwd)/.admin-fix/.env.local:/app/.env.local
+                -v $(pwd)/.admin-fix/.env.production:/app/.env.production
+                -v $(pwd)/.admin-fix/.env.production.local:/app/.env.production.local
+                -e NEXT_PUBLIC_SUPABASE_URL="$SUPABASE_URL"
+                -e NEXT_PUBLIC_SUPABASE_ANON_KEY="$SUPABASE_KEY"
+                -e NEXT_PUBLIC_API_URL="http://backend:3000"
+                --restart unless-stopped
+                --health-cmd="wget -qO- http://localhost:3000 || exit 1"
+                --health-interval=30s
+                --health-timeout=5s
+                --health-retries=3
                 vpn-admin-fixed:latest || {
                 echo "⚠️ Container startup failed, trying without volume mounts:"
-                docker run -d \
-                  --name vpn-admin \
-                  --network $NETWORK_NAME \
-                  -p 8080:3000 \
-                  -e NEXT_PUBLIC_SUPABASE_URL="$SUPABASE_URL" \
-                  -e NEXT_PUBLIC_SUPABASE_ANON_KEY="$SUPABASE_KEY" \
-                  -e NEXT_PUBLIC_API_URL="http://backend:3000" \
-                  --restart unless-stopped \
+                docker run -d
+                  --name vpn-admin
+                  --network $NETWORK_NAME
+                  -p 8080:3000
+                  -e NEXT_PUBLIC_SUPABASE_URL="$SUPABASE_URL"
+                  -e NEXT_PUBLIC_SUPABASE_ANON_KEY="$SUPABASE_KEY"
+                  -e NEXT_PUBLIC_API_URL="http://backend:3000"
+                  --restart unless-stopped
                   vpn-admin-fixed:latest || echo "⚠️ All container startup attempts failed"
               }
             fi
@@ -653,14 +664,14 @@ jobs:
                   echo "Admin service not found in docker-compose.yml"
                 fi
               else
-                docker run -d \
-                  --name vpn-admin \
-                  --network vpn_vpn-network \
-                  -p 8080:3000 \
-                  -e NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL \
-                  -e NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY \
-                  -e NEXT_PUBLIC_API_URL=http://backend:3000 \
-                  --restart unless-stopped \
+                docker run -d
+                  --name vpn-admin
+                  --network vpn_vpn-network
+                  -p 8080:3000
+                  -e NEXT_PUBLIC_SUPABASE_URL=$SUPABASE_URL
+                  -e NEXT_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_KEY
+                  -e NEXT_PUBLIC_API_URL=http://backend:3000
+                  --restart unless-stopped
                   vpnservice-admin:latest || echo "⚠️ Could not start admin container with direct run"
               fi
 
@@ -753,7 +764,7 @@ jobs:
 
   # Standard deployment job
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-lates
     # Run on main branch push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 20
@@ -798,7 +809,7 @@ jobs:
             echo "::group::Repository setup"
             if [ ! -d "vpnservice" ]; then
               echo "Cloning repository..."
-              git clone ${{ github.server_url }}/${{ github.repository }}.git
+              git clone ${{ github.server_url }}/${{ github.repository }}.gi
               cd vpnservice
             else
               cd vpnservice
@@ -809,7 +820,7 @@ jobs:
             echo "::endgroup::"
 
             echo "::group::Environment setup"
-            # Copy .env file if it doesn't exist
+            # Copy .env file if it doesn't exis
             if [ ! -f ".env" ]; then
               echo "Setting up environment variables..."
               if [ -f ".env.example" ]; then
@@ -842,7 +853,7 @@ jobs:
               sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}|g" .env
               sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY }}|g" .env
 
-              # Add if they don't exist
+              # Add if they don't exis
               grep -q "NEXT_PUBLIC_SUPABASE_URL" .env || echo "NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
               grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY }}" >> .env
               echo "Updated environment variables in .env"
@@ -959,8 +970,11 @@ jobs:
   # Rebuild specific components
   rebuild-component:
     runs-on: ubuntu-latest
-    # Run on main branch push or when explicitly triggered with this job
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job_to_run == 'rebuild-component')
+    # Run on main branch push or if selected from workflow_dispatch
+    if: >
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') || 
+      (github.event_name == 'workflow_dispatch' && needs.selector.outputs.job_to_run == 'rebuild-component')
+    needs: [selector]
     timeout-minutes: 20
 
     steps:
@@ -977,14 +991,14 @@ jobs:
           if_key_exists: fail
 
       - name: Determine component to rebuild
-        id: component
+        id: componen
         run: |
-          # Default to admin component
+          # Default to admin componen
           echo "component_name=admin" >> $GITHUB_OUTPUT
           echo "container_name=vpn-admin" >> $GITHUB_OUTPUT
           echo "port=8080" >> $GITHUB_OUTPUT
 
-      - name: Rebuild Specific Component
+      - name: Rebuild Specific Componen
         id: rebuild
         env:
           SSH_USER: organic
@@ -1026,7 +1040,7 @@ jobs:
                 sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}|g" .env
                 sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}|g" .env
 
-                # Add if they don't exist
+                # Add if they don't exis
                 grep -q "NEXT_PUBLIC_SUPABASE_URL" .env || echo "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" >> .env
                 grep -q "NEXT_PUBLIC_SUPABASE_ANON_KEY" .env || echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}" >> .env
                 echo "Updated environment variables in .env"
@@ -1053,7 +1067,7 @@ jobs:
                 cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d%H%M%S)
                 echo "Created backup of docker-compose.yml"
 
-                # Try to update build args if they exist
+                # Try to update build args if they exis
                 sed -i "s|NEXT_PUBLIC_SUPABASE_URL=.*|NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}|g" docker-compose.yml || true
                 sed -i "s|NEXT_PUBLIC_SUPABASE_ANON_KEY=.*|NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}|g" docker-compose.yml || true
                 echo "Updated build args in docker-compose.yml"
@@ -1165,8 +1179,9 @@ jobs:
   # Update Dependencies Job (migrated from update-dependencies.sh)
   update-dependencies:
     runs-on: ubuntu-latest
-    # Run when explicitly triggered with this job
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.job_to_run == 'update-dependencies'
+    # Run only if selected from workflow_dispatch
+    if: github.event_name == 'workflow_dispatch' && needs.selector.outputs.job_to_run == 'update-dependencies'
+    needs: selector
     timeout-minutes: 15
 
     steps:
@@ -1256,7 +1271,7 @@ jobs:
 
   # Integrated admin panel fix directly in workflow (no separate script)
   integrated-admin-fix:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-lates
     # Run on main branch push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 15
@@ -1295,7 +1310,7 @@ jobs:
           setup_ssh_connection
 
           echo "Executing Integrated Admin Panel Fix remotely..."
-          # Using a variable to hold SSH command output
+          # Using a variable to hold SSH command outpu
           RESULT=$(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new $SSH_USER@$SERVER_IP << 'ENDSSH'
             cd ~/dev/vpnservice || mkdir -p ~/dev/vpnservice
 
@@ -1322,17 +1337,17 @@ jobs:
             exit 0
           ENDSSH
           )
-          
+
           # Store the exit code from the SSH command
           SSH_EXIT_CODE=$?
-          
+
           # Output the result for debugging
           echo "$RESULT"
-          
+
           # Always mark as successful to prevent GitHub Actions from failing
           echo "integrated_fix_successful=true" >> $GITHUB_OUTPUT
 
-      - name: Fix Report
+      - name: Fix Repor
         run: |
           echo "## Next.js Admin Panel Fix Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

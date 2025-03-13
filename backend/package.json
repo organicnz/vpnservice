@@ -7,8 +7,9 @@
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn src/index.ts",
     "build": "tsc",
-    "test": "jest --passWithNoTests",
-    "lint": "eslint . --ext .ts",
+    "test": "jest",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
+    "lint:fix": "node fix-lint.js && eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "format": "prettier --write \"src/**/*.ts\"",
     "prepare": "npm run build",
     "prestart": "npm run build"

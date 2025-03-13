@@ -8,8 +8,14 @@ WORKDIR /app
 # Copy package files to leverage Docker's caching
 COPY package*.json ./
 
-# Install dependencies with performance optimizations
-RUN npm ci --only=production --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund && \
+# Install dependencies with a more resilient approach
+RUN if [ -s package-lock.json ] && grep -q "lockfileVersion" package-lock.json; then \
+      echo "Valid package-lock.json found, using npm ci"; \
+      npm ci --only=production --no-audit --no-fund; \
+    else \
+      echo "No valid package-lock.json found, using npm install"; \
+      npm install --omit=dev --no-audit --no-fund; \
+    fi && \
     npm cache clean --force
 
 # Copy application code

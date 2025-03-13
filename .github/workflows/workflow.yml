@@ -14,7 +14,7 @@ permissions:
 jobs:
   # Always run on all events
   check:
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,7 +26,7 @@ jobs:
 
   # Linting job
   lint:
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     # Run on push/PR events
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     steps:
@@ -54,7 +54,7 @@ jobs:
 
   # Build job
   build:
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     # Run on push/PR events
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     steps:
@@ -71,9 +71,9 @@ jobs:
           context: ./backend
           push: false
           load: true
-          tags: vpnservice-backend:lates
+          tags: vpnservice-backend:latest
           build-args: |
-            NODE_ENV=developmen
+            NODE_ENV=development
             NPM_FLAGS=--no-audit --no-fund --force
 
       - name: Build admin panel image
@@ -83,11 +83,11 @@ jobs:
           context: ./admin-panel
           push: false
           load: true
-          tags: vpnservice-admin:lates
+          tags: vpnservice-admin:latest
 
   # Fix TypeScript issues
   fix-typescript:
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     # Only run on workflow_dispatch
     if: github.event_name == 'workflow_dispatch'
     steps:
@@ -130,7 +130,7 @@ jobs:
 
   # Update dependencies
   update-dependencies:
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     # Only run on workflow_dispatch
     if: github.event_name == 'workflow_dispatch'
     steps:
@@ -166,9 +166,9 @@ jobs:
           git commit -m "Chore(deps): update backend dependencies"
           git push
 
-  # Rebuild componen
+  # Rebuild component
   rebuild-component:
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     # Only run on workflow_dispatch
     if: github.event_name == 'workflow_dispatch'
     steps:
@@ -185,7 +185,7 @@ jobs:
           context: ./backend
           push: false
           load: true
-          tags: vpnservice-backend:lates
+          tags: vpnservice-backend:latest
           build-args: |
-            NODE_ENV=developmen
+            NODE_ENV=development
             NPM_FLAGS=--no-audit --no-fund --force --ignore-scripts

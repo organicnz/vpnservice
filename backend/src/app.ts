@@ -1,57 +1,56 @@
-import express, { Request, Response, NextFunction, Express } from 'express';
-import cors from 'cors';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+/**
+ * Main application setup for the VPN Service API
+ */
+import express from 'express';
+import morgan from 'morgan';
+import dotenv from 'dotenv';
+import path from 'path';
+import config from './config';
+import logger, { stream } from './utils/logger';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { configureSecurityMiddleware } from './middleware/security';
+import { cacheMiddleware } from './middleware/cache';
+import routes from './routes';
 
-// Extend global namespace to include supabase
-declare global {
-  namespace NodeJS {
-    interface Global {
-      supabase: SupabaseClient;
-    }
-  }
-}
+// Load environment variables
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
-// Initialize Supabase client
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
+// Create Express application
+const app = express();
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing required environment variables: SUPABASE_URL or SUPABASE_KEY');
-}
+// Apply security middleware (helmet, cors, rate limiting)
+configureSecurityMiddleware(app);
 
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-// Make Supabase client available globally
-(global as any).supabase = supabase;
-
-const app: Express = express();
-
-// Middleware
-app.use(cors());
+// Request parsing middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Root route
-app.get('/', (_req: Request, res: Response): void => {
-  res.json({ message: 'VPN Subscription API' });
-});
+// Logging middleware
+if (config.logging.logRequests) {
+  app.use(morgan('combined', { stream }));
+}
 
-// Health route
-app.get('/health', (_req: Request, res: Response): void => {
+// Apply cache middleware for API routes
+app.use(config.server.apiPrefix, cacheMiddleware);
+
+// Health check endpoint
+app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
-    message: 'VPN Service API is running',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    uptime: process.uptime(),
+    version: process.env.npm_package_version || 'unknown',
   });
 });
 
-// Error handling middleware
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction): void => {
-  console.error(err.stack);
-  res.status(500).json({
-    error: 'Something went wrong!',
-    message: err.message
-  });
-});
+// Mount API routes
+app.use(config.server.apiPrefix, routes);
 
+// 404 handler for undefined routes
+app.use(notFoundHandler);
+
+// Global error handler
+app.use(errorHandler);
+
+// Export the configured app
 export default app; 

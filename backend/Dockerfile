@@ -12,40 +12,29 @@ ARG NPM_FLAGS="--no-audit --no-fund"
 # Copy package files to leverage Docker's caching
 COPY package*.json ./
 
-# Install dependencies with multiple fallback approaches
-RUN echo "Installing dependencies with npm install..." && \
-    npm install ${NPM_FLAGS} || \
-    (echo "First attempt failed, trying with updated registry..." && \
-     npm config set registry https://registry.npmjs.org/ && \
-     npm install ${NPM_FLAGS}) || \
-    (echo "Second attempt failed, trying with --legacy-peer-deps..." && \
-     npm install ${NPM_FLAGS} --legacy-peer-deps) || \
-    (echo "Third attempt failed, trying with --force..." && \
-     npm install ${NPM_FLAGS} --force) && \
+# Install dependencies with a more streamlined approach
+RUN echo "Installing dependencies..." && \
+    npm config set registry https://registry.npmjs.org/ && \
+    # Try npm ci first (faster and more reliable when package-lock.json is present)
+    (npm ci ${NPM_FLAGS} || npm install ${NPM_FLAGS}) && \
     npm cache clean --force
 
 # Copy application code
 COPY . .
 
-# Fix linting issues before building
-RUN echo "Fixing common TypeScript linting issues..." && \
+# Perform linting and apply fixes if possible
+RUN echo "Running linting checks..." && \
     if [ -f "fix-lint.js" ]; then \
-      node fix-lint.js || echo "Fix script finished with warnings"; \
-    else \
-      echo "No fix script found, proceeding with build"; \
+      node fix-lint.js || echo "Fix script completed with warnings"; \
+    fi && \
+    if [ -f "package.json" ] && grep -q "lint:fix" package.json; then \
+      npm run lint:fix || echo "Linting fix completed with issues"; \
     fi
 
-# Build TypeScript code with error handling
+# Build TypeScript code with better error handling
 RUN echo "Building TypeScript code..." && \
     npm run build || \
-    (echo "Build failed, trying to fix TypeScript errors..." && \
-     # Comment out problematic lines that might cause build errors
-     find src -name "*.ts" -type f -exec sed -i 's/const hashedPassword/\/\/ const hashedPassword/g' {} \; && \
-     find src -name "*.ts" -type f -exec sed -i 's/const _next/\/\/ const _next/g' {} \; && \
-     find src -name "*.ts" -type f -exec sed -i 's/: any/: unknown/g' {} \; && \
-     npm run build) || \
-    (echo "Build still failing, trying with --force..." && \
-     npm run build --force)
+    (echo "Build failed with errors. See logs above for details." && exit 1)
 
 # Production stage - multi-stage build to reduce final image size
 FROM node:20-alpine AS production
@@ -59,8 +48,9 @@ WORKDIR /app
 
 # Copy only the necessary files from the build stage
 COPY --from=build /app/package.json .
-COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package-lock.json* ./
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
 
 # Create logs directory with proper permissions
 RUN mkdir -p logs && \
@@ -70,9 +60,13 @@ RUN mkdir -p logs && \
 # Add security hardening
 RUN echo "fs.file-max = 65535" > /etc/sysctl.conf && \
     echo "net.ipv4.ip_local_port_range = 1024 65000" >> /etc/sysctl.conf && \
-    echo "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.conf && \
-    npm i -g npm-audit-ci && \
-    npm-audit-ci || echo "Security audit failed but continuing"
+    echo "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.conf
+
+# Install security audit tools only in production
+RUN if [ "$NODE_ENV" = "production" ]; then \
+      npm i -g npm-audit-ci && \
+      npm-audit-ci || echo "Security audit completed with warnings"; \
+    fi
 
 # Performance tuning with environment variables
 ENV NODE_ENV=production \

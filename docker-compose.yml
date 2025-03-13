@@ -16,7 +16,7 @@ x-healthcheck: &default-healthcheck
 services:
   # 3x-ui VPN Panel
   xui:
-    image: ghcr.io/mhsanaei/3x-ui:latest
+    image: ghcr.io/mhsanaei/3x-ui:v3.0.0
     container_name: xray-ui
     restart: unless-stopped
     ports:
@@ -30,8 +30,8 @@ services:
       - XUI_PASSWORD=${XUI_PASSWORD:-admin}
       - SECURITY_PANEL_ENFORCE_HTTPS=false
     volumes:
-      - ./data/xray/db/:/etc/x-ui/:rw
-      - ./data/xray/cert/:/root/cert/:ro
+      - xui_db_data:/etc/x-ui/:rw
+      - xui_cert_data:/root/cert/:ro
     networks:
       - vpn-network
     healthcheck:
@@ -103,7 +103,7 @@ services:
     tmpfs:
       - /tmp
     volumes:
-      - ./backend/logs:/app/logs:rw
+      - backend_logs:/app/logs:rw
 
   # Admin Panel
   admin:
@@ -160,4 +160,13 @@ networks:
       config:
         - subnet: 172.28.0.0/16
     driver_opts:
-      com.docker.network.bridge.name: vpn0 
+      com.docker.network.bridge.name: vpn0
+
+# Named volumes for data persistence
+volumes:
+  xui_db_data:
+    driver: local
+  xui_cert_data:
+    driver: local
+  backend_logs:
+    driver: local

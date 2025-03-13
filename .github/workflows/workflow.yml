@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
-    inputs: {}
 
 permissions:
   contents: write  # Needed for pushing fixes
@@ -23,6 +22,21 @@ jobs:
         run: |
           echo "Event name: ${{ github.event_name }}"
           echo "Branch: ${{ github.ref }}"
+
+      - name: Troubleshooting info
+        run: |
+          echo "GitHub workflow diagnostics:"
+          echo "----------------------------"
+          echo "Runner OS: ${{ runner.os }}"
+          echo "GitHub workspace: ${{ github.workspace }}"
+          echo "GitHub repository: ${{ github.repository }}"
+          echo "GitHub SHA: ${{ github.sha }}"
+          echo "GitHub event path: ${{ github.event_path }}"
+          echo "GitHub event name: ${{ github.event_name }}"
+          echo "GitHub Actions run ID: ${{ github.run_id }}"
+          echo "GitHub workflow ref: ${{ github.workflow_ref }}"
+          echo "Directory structure:"
+          ls -la
 
   # Linting job
   lint:

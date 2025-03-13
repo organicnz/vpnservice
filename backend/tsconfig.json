@@ -12,9 +12,11 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "typeRoots": ["./node_modules/@types", "./src/types"],
-    "sourceMap": true,
-    "declaration": true
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "exclude": ["node_modules", "dist"]
 } 

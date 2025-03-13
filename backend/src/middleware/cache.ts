@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import NodeCache from 'node-cache';
+import { CacheKeyFunction } from '../types/middleware';
 
 // Default TTL for cache entries in seconds
 const DEFAULT_TTL = 300; // 5 minutes
@@ -68,50 +69,38 @@ const nonCacheableMethods = ['POST', 'PUT', 'DELETE', 'PATCH'];
  * @param res Express response object
  * @param next Next function
  */
-export const cacheMiddleware = (req: Request, res: Response, next: NextFunction): void => {
-  // Skip caching for non-cacheable routes or methods
-  if (
-    nonCacheableMethods.includes(req.method) ||
-    nonCacheableRoutes.some(route => req.path.startsWith(route))
-  ) {
-    return next();
-  }
-
-  // Get cache key
-  const key = getCacheKey(req);
-  
-  // Check if response exists in cache
-  const cachedResponse = cache.get(key);
-  if (cachedResponse) {
-    // Return cached response
-    return res.status(200).json(cachedResponse);
-  }
-
-  // Store original send method
-  const originalSend = res.json;
-  
-  // Override json method to cache response before sending
-  res.json = function(body): Response {
-    // Only cache successful responses
-    if (res.statusCode >= 200 && res.statusCode < 300) {
-      // Get TTL for this route
-      const ttl = getTtl(req.originalUrl);
-      
-      // Store response in cache
-      cache.set(key, body, ttl);
+export const cacheMiddleware = (ttl: number = 300, keyFn?: CacheKeyFunction) => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    // Skip caching for non-cacheable routes or methods
+    if (
+      nonCacheableMethods.includes(req.method) ||
+      nonCacheableRoutes.some(route => req.path.startsWith(route))
+    ) {
+      return next();
     }
-    
-    // Call original json method
-    return originalSend.call(this, body);
+
+    const key = keyFn ? keyFn(req) : req.originalUrl;
+    const cachedResponse = cache.get(key);
+
+    if (cachedResponse) {
+      res.json(cachedResponse);
+      return;
+    }
+
+    const originalJson = res.json.bind(res);
+    res.json = ((data: any) => {
+      cache.set(key, data, ttl);
+      return originalJson(data);
+    }) as Response['json'];
+
+    next();
   };
-  
-  next();
 };
 
 /**
  * Clear the entire cache
  */
-export const clearCache = (): void => {
+export const clearAllCache = (): void => {
   cache.flushAll();
 };
 

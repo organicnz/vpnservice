@@ -10,7 +10,9 @@ export const registerValidation = [
 
 
 
+
   body('email').isEmail().withMessage('Please provide a valid email'),
+
 
 
 
@@ -20,7 +22,9 @@ export const registerValidation = [
 
 
 
+
   .isLength({ min: 8 })
+
 
 
 
@@ -30,7 +34,9 @@ export const registerValidation = [
 
 
 
+
   .matches(/[A-Z]/)
+
 
 
 
@@ -40,7 +46,9 @@ export const registerValidation = [
 
 
 
+
   .matches(/[a-z]/)
+
 
 
 
@@ -50,12 +58,15 @@ export const registerValidation = [
 
 
 
+
   .matches(/[0-9]/)
 
 
 
 
+
   .withMessage('Password must contain at least one number'),
+
 
 
 
@@ -71,7 +82,9 @@ export const loginValidation = [
 
 
 
+
   body('email').isEmail().withMessage('Please provide a valid email'),
+
 
 
 
@@ -87,7 +100,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   try {
+
 
 
 
@@ -97,7 +112,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   const errors = validationResult(req);
+
 
 
 
@@ -107,7 +124,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   res.status(400).json({
+
 
 
 
@@ -117,7 +136,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   message: 'Validation failed',
+
 
 
 
@@ -127,7 +148,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   timestamp: new Date().toISOString(),
+
 
 
 
@@ -137,12 +160,15 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   return;
 
 
 
 
+
   }
+
 
 
 
@@ -154,7 +180,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   // Check if user already exists
+
 
 
 
@@ -165,7 +193,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   if (!user) {
+
 
 
 
@@ -175,7 +205,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   success: false,
+
 
 
 
@@ -185,7 +217,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   error: 'User with this email may already exist',
+
 
 
 
@@ -195,12 +229,15 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   });
 
 
 
 
+
   return;
+
 
 
 
@@ -211,7 +248,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   res.status(201).json({
+
 
 
 
@@ -221,7 +260,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   message: 'User registered successfully',
+
 
 
 
@@ -231,7 +272,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   id: user.id,
+
 
 
 
@@ -241,7 +284,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   fullName: user.full_name,
+
 
 
 
@@ -251,7 +296,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   createdAt: user.created_at,
+
 
 
 
@@ -261,12 +308,15 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   timestamp: new Date().toISOString(),
 
 
 
 
+
   });
+
 
 
 
@@ -276,7 +326,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   console.error('Error in register controller:', error);
+
 
 
 
@@ -286,7 +338,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   success: false,
+
 
 
 
@@ -296,7 +350,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   error: 'Internal server error',
+
 
 
 
@@ -306,7 +362,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   });
+
 
 
 
@@ -322,7 +380,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   try {
+
 
 
 
@@ -332,7 +392,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   const errors = validationResult(req);
+
 
 
 
@@ -342,7 +404,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   res.status(400).json({
+
 
 
 
@@ -352,7 +416,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   message: 'Validation failed',
+
 
 
 
@@ -362,7 +428,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   timestamp: new Date().toISOString(),
+
 
 
 
@@ -372,12 +440,15 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   return;
 
 
 
 
+
   }
+
 
 
 
@@ -389,7 +460,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   // Attempt to login user
+
 
 
 
@@ -400,7 +473,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   if (!user || !token) {
+
 
 
 
@@ -410,7 +485,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   success: false,
+
 
 
 
@@ -420,7 +497,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   error: 'Invalid email or password',
+
 
 
 
@@ -430,12 +509,15 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   });
 
 
 
 
+
   return;
+
 
 
 
@@ -446,7 +528,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   res.status(200).json({
+
 
 
 
@@ -456,7 +540,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   message: 'Login successful',
+
 
 
 
@@ -466,7 +552,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   user: {
+
 
 
 
@@ -476,7 +564,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   email: user.email,
+
 
 
 
@@ -486,12 +576,15 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   role: user.role,
 
 
 
 
+
   },
+
 
 
 
@@ -501,7 +594,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   },
+
 
 
 
@@ -511,7 +606,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   });
+
 
 
 
@@ -521,7 +618,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   console.error('Error in login controller:', error);
+
 
 
 
@@ -531,7 +630,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   success: false,
+
 
 
 
@@ -541,7 +642,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   error: 'Internal server error',
+
 
 
 
@@ -551,7 +654,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   });
+
 
 
 
@@ -567,7 +672,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   try {
+
 
 
 
@@ -577,7 +684,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   res.status(401).json({
+
 
 
 
@@ -587,7 +696,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   message: 'Authentication required',
+
 
 
 
@@ -597,7 +708,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   timestamp: new Date().toISOString(),
+
 
 
 
@@ -607,12 +720,15 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   return;
 
 
 
 
+
   }
+
 
 
 
@@ -624,7 +740,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   if (!user) {
+
 
 
 
@@ -634,7 +752,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   success: false,
+
 
 
 
@@ -644,7 +764,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   error: 'User profile could not be retrieved',
+
 
 
 
@@ -654,12 +776,15 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   });
 
 
 
 
+
   return;
+
 
 
 
@@ -670,7 +795,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   res.status(200).json({
+
 
 
 
@@ -680,7 +807,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   message: 'Profile retrieved successfully',
+
 
 
 
@@ -690,7 +819,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   id: user.id,
+
 
 
 
@@ -700,7 +831,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   fullName: user.full_name,
+
 
 
 
@@ -710,7 +843,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   telegramId: user.telegram_id,
+
 
 
 
@@ -720,7 +855,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   updatedAt: user.updated_at,
+
 
 
 
@@ -730,12 +867,15 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   timestamp: new Date().toISOString(),
 
 
 
 
+
   });
+
 
 
 
@@ -745,7 +885,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   console.error('Error in getProfile controller:', error);
+
 
 
 
@@ -755,7 +897,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   success: false,
+
 
 
 
@@ -765,7 +909,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   error: 'Internal server error',
+
 
 
 
@@ -775,7 +921,9 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
 
 
+
   });
+
 
 
 

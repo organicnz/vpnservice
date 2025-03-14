@@ -27,6 +27,7 @@ export const registerUser = async (
     // Hash the password
     // Disabled due to linting error
   // // Disabled due to linting error
+  // // Disabled due to linting error
   // const hashedPassword = await bcrypt.hash(password, 10);
 
     // Register user with Supabase auth

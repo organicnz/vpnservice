@@ -5,7 +5,7 @@ import { User } from '../types';
 // Extend Express Request to include user
 declare global {
   // Using import instead of namespace for ES2015 compatibility
-import Express {
+namespace Express {
     interface Request {
       user?: User;
     }

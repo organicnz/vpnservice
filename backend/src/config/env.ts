@@ -72,9 +72,13 @@ export const validateEnv = (): boolean => {
 
 
 
+<<<<<<< HEAD
 
   const missingVars = requiredVars.filter((((varName))) => !process.env[((varName))]);
 
+=======
+  const missingVars = requiredVars.filter((varName) => !process.env[varName]);
+>>>>>>> 2b65c78 (Feat(config): add Master Configuration Profile (MCP) system)
 
 
 

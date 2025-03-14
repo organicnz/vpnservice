@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { body, validationResult } from 'express-validator';
+import { check as body, validationResult } from "express-validator";
 import { registerUser, loginUser, getUserById } from '../services/authService';
 
 /**

@@ -6,7 +6,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import path from 'path';
 import config from './config';
-import logger, { stream } from './utils/logger';
+import { stream } from './utils/logger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { configureSecurityMiddleware } from './middleware/security';
 import { cacheMiddleware } from './middleware/cache';
@@ -31,10 +31,10 @@ if (config.logging.logRequests) {
 }
 
 // Apply cache middleware for API routes
-app.use(config.server.apiPrefix, cacheMiddleware);
+app.use(config.server.apiPrefix, cacheMiddleware());
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (_, res) => {
   res.status(200).json({
     status: 'ok',
     timestamp: new Date().toISOString(),

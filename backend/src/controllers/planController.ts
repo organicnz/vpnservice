@@ -10,7 +10,9 @@ export const getPlans = async (_req: Request, res: Response): Promise<void> => {
 
 
 
+
   try {
+
 
 
 
@@ -23,7 +25,9 @@ export const getPlans = async (_req: Request, res: Response): Promise<void> => {
 
 
 
+
   res.status(200).json({
+
 
 
 
@@ -35,7 +39,9 @@ export const getPlans = async (_req: Request, res: Response): Promise<void> => {
 
 
 
+
   message: 'Plans retrieved successfully',
+
 
 
 
@@ -47,13 +53,16 @@ export const getPlans = async (_req: Request, res: Response): Promise<void> => {
 
 
 
+
   timestamp: new Date().toISOString(),
 
 
 
 
 
+
   });
+
 
 
 
@@ -65,7 +74,9 @@ export const getPlans = async (_req: Request, res: Response): Promise<void> => {
 
 
 
+
   console.error('Error in getPlans controller:', error);
+
 
 
 
@@ -77,7 +88,9 @@ export const getPlans = async (_req: Request, res: Response): Promise<void> => {
 
 
 
+
   success: false,
+
 
 
 
@@ -89,7 +102,9 @@ export const getPlans = async (_req: Request, res: Response): Promise<void> => {
 
 
 
+
   error: 'Internal server error',
+
 
 
 
@@ -101,7 +116,9 @@ export const getPlans = async (_req: Request, res: Response): Promise<void> => {
 
 
 
+
   });
+
 
 
 
@@ -119,13 +136,16 @@ export const getPlan = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   try {
 
 
 
 
 
+
   const { id } = req.params;
+
 
 
 
@@ -138,7 +158,9 @@ export const getPlan = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   if (!plan) {
+
 
 
 
@@ -150,7 +172,9 @@ export const getPlan = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   success: false,
+
 
 
 
@@ -162,7 +186,9 @@ export const getPlan = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   error: 'Plan with the specified ID does not exist',
+
 
 
 
@@ -174,13 +200,16 @@ export const getPlan = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   });
 
 
 
 
 
+
   return;
+
 
 
 
@@ -193,7 +222,9 @@ export const getPlan = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   res.status(200).json({
+
 
 
 
@@ -205,7 +236,9 @@ export const getPlan = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   message: 'Plan retrieved successfully',
+
 
 
 
@@ -217,13 +250,16 @@ export const getPlan = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   timestamp: new Date().toISOString(),
 
 
 
 
 
+
   });
+
 
 
 
@@ -235,7 +271,9 @@ export const getPlan = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   console.error('Error in getPlan controller:', error);
+
 
 
 
@@ -247,7 +285,9 @@ export const getPlan = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   success: false,
+
 
 
 
@@ -259,7 +299,9 @@ export const getPlan = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   error: 'Internal server error',
+
 
 
 
@@ -271,7 +313,9 @@ export const getPlan = async (req: Request, res: Response): Promise<void> => {
 
 
 
+
   });
+
 
 
 

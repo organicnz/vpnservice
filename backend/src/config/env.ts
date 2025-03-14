@@ -63,7 +63,7 @@ export const validateEnv = (): boolean => {
 
 
 
-  const missingVars = requiredVars.filter(((varName)) => !process.env[(varName)]);
+  const missingVars = requiredVars.filter((varName) => !process.env[varName]);
 
 
 

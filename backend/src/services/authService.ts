@@ -1,5 +1,5 @@
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+
+import jwt from "jsonwebtoken";
 import { createClient } from '@supabase/supabase-js';
 import { User, JWTPayload } from '../types';
 
@@ -98,7 +98,7 @@ export const loginUser = async (
       role: user.role,
     };
 
-    const token = jwt.sign(payload, JWT_SECRET, {
+    const token = jwt.sign(payload, Buffer.from(JWT_SECRET), {
       expiresIn: JWT_EXPIRES_IN,
     });
 
@@ -115,7 +115,7 @@ export const loginUser = async (
  */
 export const verifyToken = (token: string): JWTPayload | null => {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
+    const decoded = jwt.verify(token, Buffer.from(JWT_SECRET)) as JWTPayload;
     return decoded;
   } catch (error) {
     console.error('Error verifying token:', error);

@@ -11,7 +11,9 @@ const env: EnvConfig = {
 
 
 
+
   nodeEnv: process.env.NODE_ENV || 'development',
+
 
 
 
@@ -19,7 +21,9 @@ const env: EnvConfig = {
 
 
 
+
   supabaseUrl: process.env.SUPABASE_URL || '',
+
 
 
 
@@ -27,7 +31,9 @@ const env: EnvConfig = {
 
 
 
+
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+
 
 
 
@@ -35,7 +41,9 @@ const env: EnvConfig = {
 
 
 
+
   jwtSecret: process.env.JWT_SECRET || 'your-secret-key',
+
 
 
 
@@ -49,11 +57,14 @@ export const validateEnv = (): boolean => {
 
 
 
+
   const requiredVars = ['SUPABASE_URL', 'SUPABASE_KEY'];
 
 
 
-  const missingVars = requiredVars.filter((varName) => !process.env[varName]);
+
+  const missingVars = requiredVars.filter(((varName)) => !process.env[(varName)]);
+
 
 
 
@@ -62,7 +73,9 @@ export const validateEnv = (): boolean => {
 
 
 
+
   console.error(
+
 
 
 
@@ -70,7 +83,9 @@ export const validateEnv = (): boolean => {
 
 
 
+
   );
+
 
 
 
@@ -78,11 +93,14 @@ export const validateEnv = (): boolean => {
 
 
 
+
   return false;
 
 
 
+
   }
+
 
 
 

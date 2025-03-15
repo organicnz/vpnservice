@@ -11,18 +11,25 @@ RUN apk add --no-cache libc6-compat python3 make g++
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install dependencies with improved error handling
+# Install dependencies with improved error handling and caching
 RUN npm config set registry https://registry.npmjs.org/ && \
-    npm ci --prefer-offline --no-audit || npm install --no-audit --legacy-peer-deps
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm ci --prefer-offline --no-audit --legacy-peer-deps || \
+    npm install --no-audit --legacy-peer-deps
 
 # Rebuild the source code only when needed
 FROM base AS builder
 WORKDIR /app
+
+# Copy dependencies
 COPY --from=deps /app/node_modules ./node_modules
+
+# Copy project files
 COPY . .
 
-# Ensure public directory exists
-RUN mkdir -p public
+# Ensure directories exist
+RUN mkdir -p public app .next/cache
 
 # Define build arguments with defaults
 ARG NODE_ENV=production
@@ -40,10 +47,9 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
 
 # Create a simple fallback page first to ensure we can complete the build
 RUN echo "console.log('Preparing build environment...');" && \
-    mkdir -p app && \
     echo 'export default function Page() { return <div><h1>Admin Panel</h1><p>Loading...</p></div>; }' > ./app/page.tsx
 
-# Build the application with better error handling
+# Build the application with robust error handling
 RUN echo "Starting Next.js build..." && \
     npm run build || \
     (echo "First build attempt failed, retrying with simplified app..." && \
@@ -67,11 +73,11 @@ RUN addgroup --system --gid 1001 nodejs && \
 RUN mkdir -p /tmp/next && \
     chmod -R 777 /tmp/next
 
-# Create necessary directories and set permissions
-RUN mkdir -p ./public ./.next/static && \
+# Create necessary directories
+RUN mkdir -p ./public ./.next/static ./.next/server && \
     chown -R nextjs:nodejs /app
 
-# Copy built application
+# Copy only the necessary files from the build output
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static

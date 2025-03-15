@@ -217,6 +217,7 @@ jobs:
           driver-opts: |
             image=moby/buildkit:master
             network=host
+          buildkitd-flags: --debug
 
       - name: Log in to Container registry
         uses: docker/login-action@v3
@@ -237,14 +238,15 @@ jobs:
             type=ref,event=pr
 
       - name: Build and push Docker image
+        id: build-and-push
         uses: docker/build-push-action@v5
         with:
           context: ./admin-panel
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ github.workflow }}-admin
+          cache-to: type=gha,mode=max,scope=${{ github.workflow }}-admin
           build-args: |
             NODE_ENV=production
             NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL || 'https://dummy-value-for-build.supabase.co' }}
@@ -252,9 +254,15 @@ jobs:
             NEXT_PUBLIC_API_URL=/api
           outputs: type=image,name=target
           provenance: false
-          # Increase resource allocation for the build
           platforms: linux/amd64
-          memory: 4g
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build output summary
+        if: always()
+        run: |
+          echo "### Build Status: ${{ steps.build-and-push.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "Built and pushed: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "Build completed at: $(date)" >> $GITHUB_STEP_SUMMARY
 
   # Security scan job
   security-scan:
@@ -551,15 +559,12 @@ jobs:
             cat > sync.sh << 'SYNCSCRIPT'
             #!/bin/bash
             set -e
-            
             echo "==============================================="
             echo "VPN Service Auto-Sync Script"
             echo "==============================================="
             echo "🔄 Auto-sync triggered on $(date)"
-            
             # Store current commit hash before update
             PREV_COMMIT=""
-            
             # Create code directory if it doesn't exist
             if [ ! -d "code" ]; then
               echo "Creating code directory..."
@@ -576,54 +581,42 @@ jobs:
               CURRENT_COMMIT=$(git rev-parse HEAD)
               echo "Repository updated to latest commit."
             fi
-            
             # Check if the code actually changed
             if [ -n "$PREV_COMMIT" ] && [ "$PREV_COMMIT" != "$CURRENT_COMMIT" ]; then
               echo "Code changes detected. Triggering deployment..."
               cd ..
-              
               # Create need_deploy flag
               touch code/need_deploy
             fi
-            
             # Check if we need to rebuild and redeploy
             if [ -f "code/need_deploy" ]; then
               echo "Deployment flag found. Starting deployment process..."
-              
               # Check if there's a docker-compose file
               if [ -f "docker-compose.yml" ]; then
                 echo "🛑 Stopping existing services..."
                 docker-compose down
-                
                 echo "🔄 Pulling latest images..."
                 docker-compose pull
-                
                 echo "🚀 Starting services..."
                 docker-compose up -d
-                
                 echo "✅ Services deployed successfully!"
               fi
-              
               # Remove the deployment flag
               rm -f code/need_deploy
               echo "Deployment flag cleared."
             else
               echo "No deployment needed at this time."
             fi
-            
             echo "✅ Auto-sync completed on $(date)"
             SYNCSCRIPT
             chmod +x sync.sh
-            
             # Define the GitHub repository variable
             echo "GITHUB_REPOSITORY=${{ github.repository }}" > .sync_env
-            
             # Set up a cron job to run every 5 minutes if it doesn't exist already
             if ! crontab -l | grep -q "sync.sh"; then
               (crontab -l 2>/dev/null; echo "*/5 * * * * cd ${{ secrets.DEPLOY_PATH }} && . .sync_env && ./sync.sh >> sync.log 2>&1") | crontab -
               echo "Added auto-sync cron job"
             fi
-            
             # Run the sync script immediately
             export GITHUB_REPOSITORY="${{ github.repository }}"
             ./sync.sh

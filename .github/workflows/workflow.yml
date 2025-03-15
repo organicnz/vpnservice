@@ -276,117 +276,303 @@ jobs:
     needs: [build-admin, test-admin, test-supabase, security-scan]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     environment: production
     concurrency:
       group: production_environment
       cancel-in-progress: false
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          
+      # Pre-deployment preparation
+      - name: Install deployment dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rsync sshpass openssh-client
 
-      # Deploy Supabase Functions
+      # Deploy Supabase Functions first
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
-        if: ${{ needs.build-admin.outputs.supabase_changed == 'true' }}
+        if: needs.build-admin.outputs.supabase_changed == 'true' || github.event_name == 'workflow_dispatch'
         with:
           version: latest
-
+      
       - name: Deploy Supabase Edge Functions
-        if: ${{ needs.build-admin.outputs.supabase_changed == 'true' }}
+        if: needs.build-admin.outputs.supabase_changed == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           echo "Deploying Supabase Edge Functions..."
           cd supabase
-          supabase login --access-token ${{ secrets.SUPABASE_ACCESS_TOKEN }} || echo "Login failed but continuing"
-          supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} || echo "Deployment failed but continuing"
+          supabase login --access-token ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         continue-on-error: true
-
-      # Generate deployment package
-      - name: Create deployment package
+      
+      # Build Docker image and push to registry for better reliability
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Build and push Admin Docker image
+        id: docker_build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin-panel
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/admin:latest
+            ghcr.io/${{ github.repository }}/admin:${{ github.sha }}
+          build-args: |
+            NODE_ENV=production
+            NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL || 'https://dummy-value-for-build.supabase.co' }}
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY || 'dummy-key-for-build-only' }}
+            NEXT_PUBLIC_API_URL=/api
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      # Prepare deployment files
+      - name: Prepare deployment files
         run: |
-          echo "Creating complete deployment package..."
-          mkdir -p ./deploy
-          cp docker-compose.yml ./deploy/
-          cp .env.example ./deploy/.env
-          # Copy entire codebase folders needed for deployment
-          mkdir -p ./deploy/admin-panel
-          cp -r admin-panel/* ./deploy/admin-panel/
-          mkdir -p ./deploy/supabase
-          cp -r supabase/* ./deploy/supabase/
-          # Add environment variables to .env file
-          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> ./deploy/.env
-          echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> ./deploy/.env
-          echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> ./deploy/.env
-          echo "XUI_USERNAME=${{ secrets.XUI_USERNAME }}" >> ./deploy/.env
-          echo "XUI_PASSWORD=${{ secrets.XUI_PASSWORD }}" >> ./deploy/.env
-          echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> ./deploy/.env
-          # Create the deployment archive
-          tar -czf deployment.tar.gz ./deploy
-
-      # SSH Setup and Deployment
-      - name: Set up SSH
+          # Create deployment directory
+          mkdir -p deploy-package
+          
+          # Create modified docker-compose.yml that uses the image we pushed
+          cat > deploy-package/docker-compose.yml << 'EOL'
+          version: '3.8'
+          
+          # Global x-* fields for reuse
+          x-logging: &default-logging
+            driver: json-file
+            options:
+              max-size: 10m
+              max-file: 3
+          
+          x-healthcheck: &default-healthcheck
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 20s
+          
+          services:
+            # 3x-ui VPN Panel
+            xui:
+              image: ghcr.io/mhsanaei/3x-ui:v3.0.0
+              container_name: xray-ui
+              restart: unless-stopped
+              ports:
+                - 54321:2053 # Panel port (external:internal)
+                - 443:443     # HTTPS port (for Xray services)
+                - 80:80       # HTTP port (for certbot)
+              environment:
+                - TZ=${TIMEZONE:-Europe/Moscow}
+                - XRAY_VMESS_AEAD_FORCED=${XRAY_VMESS_AEAD_FORCED:-false}
+                - XUI_USERNAME=${XUI_USERNAME:-admin}
+                - XUI_PASSWORD=${XUI_PASSWORD:-admin}
+                - SECURITY_PANEL_ENFORCE_HTTPS=false
+              volumes:
+                - xui_db_data:/etc/x-ui/:rw
+                - xui_cert_data:/root/cert/:ro
+              networks:
+                - vpn-network
+              healthcheck:
+                <<: *default-healthcheck
+                test: [CMD, wget, -qO-, http://localhost:2053/]
+              logging: *default-logging
+              deploy:
+                resources:
+                  limits:
+                    cpus: '1'
+                    memory: 1G
+                restart_policy:
+                  condition: on-failure
+                  max_attempts: 3
+                  window: 120s
+          
+            # Admin Panel with Supabase integration
+            admin:
+              image: ghcr.io/${{ github.repository }}/admin:${{ github.sha }}
+              container_name: vpn-admin
+              restart: unless-stopped
+              depends_on:
+                xui:
+                  condition: service_healthy
+              environment:
+                - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
+                - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
+                - XUI_PANEL_URL=http://xui:2053
+                - XUI_USERNAME=${XUI_USERNAME:-admin}
+                - XUI_PASSWORD=${XUI_PASSWORD:-admin}
+                - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+                - NODE_ENV=production
+                - NODE_OPTIONS=--max-old-space-size=512
+              ports:
+                - 8080:3000  # Map container's 3000 port to host's 8080
+              networks:
+                - vpn-network
+              logging: *default-logging
+              healthcheck:
+                <<: *default-healthcheck
+                test: [CMD, wget, -qO-, http://localhost:3000/]
+              deploy:
+                resources:
+                  limits:
+                    cpus: '0.5'
+                    memory: 500M
+                restart_policy:
+                  condition: on-failure
+                  max_attempts: 3
+                  window: 120s
+              read_only: false
+              security_opt:
+                - no-new-privileges:true
+              cap_drop:
+                - ALL
+          
+          networks:
+            vpn-network:
+              driver: bridge
+              ipam:
+                driver: default
+                config:
+                  - subnet: 172.28.0.0/16
+              driver_opts:
+                com.docker.network.bridge.name: vpn0
+          
+          # Named volumes for data persistence
+          volumes:
+            xui_db_data:
+              driver: local
+            xui_cert_data:
+              driver: local
+          EOL
+          
+          # Create deployment script
+          cat > deploy-package/deploy.sh << 'EOL'
+          #!/bin/bash
+          set -e
+          
+          # Display banner
+          echo "==============================================="
+          echo "VPN Service Deployment Script"
+          echo "==============================================="
+          
+          # Timestamp for backups
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          
+          # Backup existing config
+          echo "📦 Creating backup..."
+          mkdir -p ./backups/$TIMESTAMP
+          if [ -f docker-compose.yml ]; then
+            cp docker-compose.yml ./backups/$TIMESTAMP/
+          fi
+          if [ -f .env ]; then
+            cp .env ./backups/$TIMESTAMP/
+          fi
+          
+          # Stop existing services
+          echo "🛑 Stopping services..."
+          if [ -f docker-compose.yml ]; then
+            docker-compose down --remove-orphans || true
+          fi
+          
+          # Copy new docker-compose file
+          echo "📋 Setting up new configuration..."
+          cp -f docker-compose.yml.new docker-compose.yml
+          
+          # Pull images
+          echo "🚀 Pulling latest images..."
+          docker-compose pull
+          
+          # Start services
+          echo "🚀 Starting services..."
+          docker-compose up -d
+          
+          # Cleanup
+          echo "🧹 Cleaning up..."
+          docker system prune -f
+          
+          echo "✅ Deployment completed successfully!"
+          docker-compose ps
+          EOL
+          
+          # Make script executable
+          chmod +x deploy-package/deploy.sh
+          
+          # Create .env file with all environment variables
+          cat > deploy-package/.env << EOL
+          # Auto-generated environment file - $(date)
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          XUI_USERNAME=${{ secrets.XUI_USERNAME }}
+          XUI_PASSWORD=${{ secrets.XUI_PASSWORD }}
+          TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+          NODE_ENV=production
+          TIMEZONE=Europe/Moscow
+          EOL
+          
+          # Create archive of deployment package
+          tar -czf deploy-package.tar.gz -C deploy-package .
+      
+      # Set up SSH connection
+      - name: Configure SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Add server to known hosts
+      
+      - name: Add host key
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
-
+          chmod 644 ~/.ssh/known_hosts
+      
+      # Transfer and deploy
       - name: Transfer deployment package
         run: |
-          scp deployment.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.DEPLOY_PATH }}/deployment.tar.gz
-
-      - name: Execute deployment commands
+          echo "Transferring deployment package to server..."
+          scp deploy-package.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.DEPLOY_PATH }}/
+      
+      - name: Execute deployment
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+          echo "Executing deployment on server..."
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
             cd ${{ secrets.DEPLOY_PATH }}
-            # Stop existing services gracefully
-            echo "Stopping existing services..."
-            docker-compose down --remove-orphans || true
-            # Backup current configuration
-            echo "Backing up current configuration..."
-            mkdir -p ./backups/$(date +%Y%m%d_%H%M%S)
-            cp docker-compose.yml ./backups/$(date +%Y%m%d_%H%M%S)/docker-compose.yml.bak || true
-            cp .env ./backups/$(date +%Y%m%d_%H%M%S)/.env.bak || true
-            # Remove old code directories (but preserve volumes)
-            echo "Removing old code..."
-            rm -rf admin-panel supabase
-            # Extract deployment package
-            echo "Extracting deployment package..."
-            tar -xzf deployment.tar.gz
-            # Move files to correct locations
-            echo "Setting up files..."
-            cp -f deploy/docker-compose.yml docker-compose.yml
-            cp -f deploy/.env .env
-            cp -r deploy/admin-panel ./
-            cp -r deploy/supabase ./
-            # Clean up deployment folder
-            echo "Cleaning up..."
-            rm -rf deploy deployment.tar.gz
-            # Pull latest Docker images
-            echo "Pulling latest Docker images..."
-            docker pull ghcr.io/mhsanaei/3x-ui:v3.0.0
-            # Build containers with new code
-            echo "Building containers..."
-            docker-compose build --no-cache admin
-            # Start services
-            echo "Starting services..."
-            docker-compose up -d
-            # Clean up unused Docker resources
-            echo "Cleaning up Docker resources..."
-            docker system prune -f
-            echo "Deployment complete!"
-            docker-compose ps
-          EOF
-
+            tar -xzf deploy-package.tar.gz
+            mv docker-compose.yml docker-compose.yml.new
+            bash ./deploy.sh
+            rm -f deploy-package.tar.gz deploy.sh
+          ENDSSH
+      
+      # Verify deployment
       - name: Verify deployment
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cd ${{ secrets.DEPLOY_PATH }} && docker-compose ps"
+          echo "Verifying deployment..."
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
+            cd ${{ secrets.DEPLOY_PATH }}
+            
+            # Check if containers are running
+            echo "Checking container status..."
+            docker-compose ps
+            
+            # Check container logs for errors
+            echo "Checking container logs (last 10 lines)..."
+            docker-compose logs --tail=10
+            
+            # Check container health
+            echo "Checking container health..."
+            docker ps --format "{{.Names}}: {{.Status}}"
+            
+            # Print success message
+            echo "Deployment verification completed."
+          ENDSSH
 
   # Success notification
   notify-success:

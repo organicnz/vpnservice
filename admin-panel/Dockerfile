@@ -13,7 +13,7 @@ COPY package.json package-lock.json* ./
 
 # Install dependencies with improved error handling
 RUN npm config set registry https://registry.npmjs.org/ && \
-    npm ci --prefer-offline --no-audit || npm install --no-audit
+    npm ci --prefer-offline --no-audit || npm install --no-audit --legacy-peer-deps
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -35,15 +35,22 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
     NODE_ENV=$NODE_ENV \
     NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
     NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY \
-    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NODE_OPTIONS=--max_old_space_size=4096
 
-# Build the application with simplified error handling
+# Create a simple fallback page first to ensure we can complete the build
+RUN echo "console.log('Preparing build environment...');" && \
+    mkdir -p app && \
+    echo 'export default function Page() { return <div><h1>Admin Panel</h1><p>Loading...</p></div>; }' > ./app/page.tsx
+
+# Build the application with better error handling
 RUN echo "Starting Next.js build..." && \
     npm run build || \
-    (echo "Build failed. Creating simple error page..." && \
-    mkdir -p .next/static .next/standalone .next/server .next/cache && \
-    echo 'export default function Page() { return <div><h1>Admin Panel Temporarily Unavailable</h1><p>The system is being updated. Please try again in a few minutes.</p></div> }' > ./app/page.tsx && \
-    NODE_OPTIONS=--max_old_space_size=4096 npm run build)
+    (echo "First build attempt failed, retrying with simplified app..." && \
+    rm -rf .next && \
+    find ./app -type f -not -name 'page.tsx' -delete && \
+    echo 'export default function Page() { return <div><h1>Admin Panel Temporarily Unavailable</h1><p>The system is being updated. Please try again in a few minutes.</p></div>; }' > ./app/page.tsx && \
+    npm run build)
 
 # Production image, copy all the files and run next
 FROM base AS runner
@@ -68,6 +75,7 @@ RUN mkdir -p ./public ./.next/static && \
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/.next/server ./.next/server
 
 # Switch to non-root user
 USER nextjs

@@ -511,6 +511,66 @@ jobs:
 
           chmod +x deploy-package/deploy.sh
 
+          # Create auto-updater script
+          cat > deploy-package/auto-update.sh << 'EOF'
+          #!/bin/bash
+          set -e
+
+          LOG_FILE="./auto-update.log"
+          TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
+
+          echo "$TIMESTAMP - Starting auto-update process" >> "$LOG_FILE"
+
+          # Check if GitHub repository exists locally
+          if [ ! -d "code" ]; then
+            echo "$TIMESTAMP - Repository directory not found. Creating..." >> "$LOG_FILE"
+            mkdir -p code
+            git clone https://github.com/$GITHUB_REPOSITORY code
+            echo "$TIMESTAMP - Repository cloned successfully" >> "$LOG_FILE"
+          fi
+
+          # Navigate to repository directory
+          cd code
+
+          # Save current commit hash
+          BEFORE_PULL=$(git rev-parse HEAD)
+          echo "$TIMESTAMP - Current commit: $BEFORE_PULL" >> "../$LOG_FILE"
+
+          # Pull latest changes
+          echo "$TIMESTAMP - Pulling latest changes..." >> "../$LOG_FILE"
+          git fetch origin
+          git reset --hard origin/main
+          
+          # Get new commit hash
+          AFTER_PULL=$(git rev-parse HEAD)
+          echo "$TIMESTAMP - New commit: $AFTER_PULL" >> "../$LOG_FILE"
+
+          # Check if there were changes
+          if [ "$BEFORE_PULL" != "$AFTER_PULL" ]; then
+            echo "$TIMESTAMP - Changes detected. Restarting services..." >> "../$LOG_FILE"
+            
+            # Return to the parent directory where docker-compose.yml exists
+            cd ..
+            
+            # Check for docker-compose.yml
+            if [ -f "docker-compose.yml" ]; then
+              echo "$TIMESTAMP - Running docker-compose..." >> "$LOG_FILE"
+              docker-compose down >> "$LOG_FILE" 2>&1
+              docker-compose pull >> "$LOG_FILE" 2>&1
+              docker-compose up -d >> "$LOG_FILE" 2>&1
+              echo "$TIMESTAMP - Services restarted successfully" >> "$LOG_FILE"
+            else
+              echo "$TIMESTAMP - No docker-compose.yml found!" >> "$LOG_FILE"
+            fi
+          else
+            echo "$TIMESTAMP - No changes detected" >> "../$LOG_FILE"
+          fi
+
+          echo "$TIMESTAMP - Auto-update process completed" >> "../$LOG_FILE"
+          EOF
+
+          chmod +x deploy-package/auto-update.sh
+
           # Create .env file
           cat > deploy-package/.env << EOF
           # Auto-generated on $(date)
@@ -522,6 +582,7 @@ jobs:
           TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
           NODE_ENV=production
           TIMEZONE=Europe/Moscow
+          GITHUB_REPOSITORY=${{ github.repository }}
           EOF
 
           # Create package
@@ -562,121 +623,27 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH' || echo "Remote execution completed with warnings"
             cd ${{ secrets.DEPLOY_PATH }} || { echo "Failed to change to deploy path"; exit 0; }
 
-            # Ensure we don't need manual git pulls by completely replacing the deployment
-            echo "🔄 Setting up auto-update mechanism..."
-
-            # Create auto-update script that will be triggered by webhook if needed in future
-            cat > auto-update.sh << 'AUTOUPDATE'
-            #!/bin/bash
-            set -e
-
-            echo "==============================================="
-            echo "VPN Service Auto-Update Script"
-            echo "==============================================="
-            echo "🔄 Auto-update triggered on $(date)"
-
-            # Extract the latest deployment package if it exists
-            if [ -f deployment-package.tar.gz ]; then
-              tar -xzf deployment-package.tar.gz
-              mv docker-compose.yml docker-compose.yml.new
-              bash ./deploy.sh
-              rm -f deployment-package.tar.gz deploy.sh
-              echo "✅ Auto-update completed successfully!"
-            else
-              echo "❌ No deployment package found. Update failed."
-            fi
-            AUTOUPDATE
-
-            chmod +x auto-update.sh
-
             # Extract the current deployment package
             if [ -f deploy-package.tar.gz ]; then
+              echo "🔄 Extracting deployment package..."
               tar -xzf deploy-package.tar.gz
               mv docker-compose.yml docker-compose.yml.new
               bash ./deploy.sh || echo "Deployment script completed with warnings"
-              # Clean up files but keep the auto-update script
+              
+              # Setup auto-update cron job
+              echo "🔄 Setting up automatic updates..."
+              
+              # Configure the cron job for auto-updates
+              (crontab -l 2>/dev/null | grep -v "auto-update.sh"; echo "*/5 * * * * cd ${{ secrets.DEPLOY_PATH }} && ./auto-update.sh >> auto-update.log 2>&1") | crontab -
+              echo "✅ Auto-update cron job configured"
+              
+              # Clean up
               rm -f deploy-package.tar.gz
+              
+              echo "✅ Auto-update system installed"
             else
               echo "❌ Deployment package not found"
             fi
-          ENDSSH
-        continue-on-error: true
-
-      - name: Create local repository clone on server
-        if: steps.check_secrets.outputs.can_deploy == 'true'
-        run: |
-          echo "Creating automatic code sync on server..."
-          ssh -o StrictHostKeyChecking=accept-new ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH' || echo "Remote execution completed with warnings"
-            cd ${{ secrets.DEPLOY_PATH }} || { echo "Failed to change to deploy path"; exit 0; }
-            
-            # Create a sync.sh script that will automatically update the code
-            cat > sync.sh << 'SYNCSCRIPT'
-            #!/bin/bash
-            set -e
-            echo "==============================================="
-            echo "VPN Service Auto-Sync Script"
-            echo "==============================================="
-            echo "🔄 Auto-sync triggered on $(date)"
-            # Store current commit hash before update
-            PREV_COMMIT=""
-            # Create code directory if it doesn't exist
-            if [ ! -d "code" ]; then
-              echo "Creating code directory..."
-              mkdir -p code
-              cd code
-              git clone https://github.com/$GITHUB_REPOSITORY .
-              echo "Repository cloned successfully."
-            else
-              cd code
-              PREV_COMMIT=$(git rev-parse HEAD)
-              echo "Updating existing repository..."
-              git fetch origin
-              git reset --hard origin/main
-              CURRENT_COMMIT=$(git rev-parse HEAD)
-              echo "Repository updated to latest commit."
-            fi
-            # Check if the code actually changed
-            if [ -n "$PREV_COMMIT" ] && [ "$PREV_COMMIT" != "$CURRENT_COMMIT" ]; then
-              echo "Code changes detected. Triggering deployment..."
-              cd ..
-              # Create need_deploy flag
-              touch code/need_deploy
-            fi
-            # Check if we need to rebuild and redeploy
-            if [ -f "code/need_deploy" ]; then
-              echo "Deployment flag found. Starting deployment process..."
-              # Check if there's a docker-compose file
-              if [ -f "docker-compose.yml" ]; then
-                echo "🛑 Stopping existing services..."
-                docker-compose down
-                echo "🔄 Pulling latest images..."
-                docker-compose pull
-                echo "🚀 Starting services..."
-                docker-compose up -d
-                echo "✅ Services deployed successfully!"
-              fi
-              # Remove the deployment flag
-              rm -f code/need_deploy
-              echo "Deployment flag cleared."
-            else
-              echo "No deployment needed at this time."
-            fi
-            echo "✅ Auto-sync completed on $(date)"
-            SYNCSCRIPT
-            chmod +x sync.sh
-            
-            # Define the GitHub repository variable
-            echo "GITHUB_REPOSITORY=${{ github.repository }}" > .sync_env
-            
-            # Set up a cron job to run every 5 minutes if it doesn't exist already
-            if ! crontab -l | grep -q "sync.sh"; then
-              (crontab -l 2>/dev/null; echo "*/5 * * * * cd ${{ secrets.DEPLOY_PATH }} && . .sync_env && ./sync.sh >> sync.log 2>&1") | crontab -
-              echo "Added auto-sync cron job"
-            fi
-            
-            # Run the sync script immediately
-            export GITHUB_REPOSITORY="${{ github.repository }}"
-            ./sync.sh || echo "Sync script completed with warnings"
           ENDSSH
         continue-on-error: true
 
@@ -692,6 +659,14 @@ jobs:
             docker ps --format "{{.Names}}: {{.Status}}" || echo "No containers running"
             echo "Recent logs:"
             docker-compose logs --tail=10 || echo "No logs available"
+            echo "Auto-update status:"
+            if [ -f "auto-update.sh" ]; then
+              echo "Auto-update script is installed"
+              echo "Cron configuration:"
+              crontab -l | grep auto-update
+            else
+              echo "Auto-update script not found"
+            fi
             echo "Verification complete."
           ENDSSH
         continue-on-error: true
@@ -702,6 +677,7 @@ jobs:
           
           if [[ "${{ steps.check_secrets.outputs.can_deploy }}" == "true" ]]; then
             echo "✅ Deployment configuration prepared" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Auto-update system installed" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ Deployment skipped - missing required secrets" >> $GITHUB_STEP_SUMMARY
             echo "Please configure the following secrets in your repository settings:" >> $GITHUB_STEP_SUMMARY

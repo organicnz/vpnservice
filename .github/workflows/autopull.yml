@@ -1,0 +1,322 @@
+name: Auto Self-Deployment
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_mode:
+        description: Deployment mode
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - local
+
+jobs:
+  prepare-deployment:
+    name: Prepare Deployment Package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create deployment package
+        id: create_package
+        run: |
+          # Create directory structure
+          mkdir -p deployment-package
+
+          # Generate docker-compose.yml
+          cat > deployment-package/docker-compose.yml << 'EOF'
+          version: '3.8'
+
+          x-logging: &default-logging
+            driver: json-file
+            options:
+              max-size: 10m
+              max-file: 3
+
+          x-healthcheck: &default-healthcheck
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 20s
+
+          services:
+            xui:
+              image: ghcr.io/mhsanaei/3x-ui:v3.0.0
+              container_name: xray-ui
+              restart: unless-stopped
+              ports:
+                - 54321:2053
+                - 443:443
+                - 80:80
+              environment:
+                - TZ=${TIMEZONE:-Europe/Moscow}
+                - XRAY_VMESS_AEAD_FORCED=${XRAY_VMESS_AEAD_FORCED:-false}
+                - XUI_USERNAME=${XUI_USERNAME:-admin}
+                - XUI_PASSWORD=${XUI_PASSWORD:-admin}
+                - SECURITY_PANEL_ENFORCE_HTTPS=false
+              volumes:
+                - xui_db_data:/etc/x-ui/:rw
+                - xui_cert_data:/root/cert/:ro
+              networks:
+                - vpn-network
+              healthcheck:
+                <<: *default-healthcheck
+                test: [CMD, wget, -qO-, http://localhost:2053/]
+              logging: *default-logging
+              deploy:
+                resources:
+                  limits:
+                    cpus: '1'
+                    memory: 1G
+                restart_policy:
+                  condition: on-failure
+                  max_attempts: 3
+                  window: 120s
+
+            admin:
+              image: ghcr.io/organicnz/vpnservice/admin:latest
+              container_name: vpn-admin
+              restart: unless-stopped
+              depends_on:
+                xui:
+                  condition: service_healthy
+              environment:
+                - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
+                - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
+                - XUI_PANEL_URL=http://xui:2053
+                - XUI_USERNAME=${XUI_USERNAME:-admin}
+                - XUI_PASSWORD=${XUI_PASSWORD:-admin}
+                - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+                - NODE_ENV=production
+                - NODE_OPTIONS=--max-old-space-size=512
+              ports:
+                - 8080:3000
+              networks:
+                - vpn-network
+              logging: *default-logging
+              healthcheck:
+                <<: *default-healthcheck
+                test: [CMD, wget, -qO-, http://localhost:3000/]
+              deploy:
+                resources:
+                  limits:
+                    cpus: '0.5'
+                    memory: 500M
+                restart_policy:
+                  condition: on-failure
+                  max_attempts: 3
+                  window: 120s
+              security_opt:
+                - no-new-privileges:true
+              cap_drop:
+                - ALL
+
+          networks:
+            vpn-network:
+              driver: bridge
+              ipam:
+                driver: default
+                config:
+                  - subnet: 172.28.0.0/16
+              driver_opts:
+                com.docker.network.bridge.name: vpn0
+
+          volumes:
+            xui_db_data:
+              driver: local
+            xui_cert_data:
+              driver: local
+          EOF
+
+          # Generate setup script
+          cat > deployment-package/setup.sh << 'EOF'
+          #!/bin/bash
+          set -e
+
+          # Colorful output
+          GREEN='\033[0;32m'
+          YELLOW='\033[0;33m'
+          RED='\033[0;31m'
+          BLUE='\033[0;34m'
+          NC='\033[0m' # No Color
+
+          echo -e "${BLUE}===============================================${NC}"
+          echo -e "${BLUE}VPN Service Setup Script${NC}"
+          echo -e "${BLUE}===============================================${NC}"
+
+          # Check Docker is installed
+          if ! command -v docker &> /dev/null; then
+            echo -e "${RED}Docker is not installed. Installing Docker...${NC}"
+            curl -fsSL https://get.docker.com -o get-docker.sh
+            sh get-docker.sh
+            rm get-docker.sh
+          else
+            echo -e "${GREEN}Docker is already installed.${NC}"
+          fi
+
+          # Check Docker Compose is installed
+          if ! command -v docker-compose &> /dev/null; then
+            echo -e "${RED}Docker Compose is not installed. Installing Docker Compose...${NC}"
+            mkdir -p ~/.docker/cli-plugins/
+            curl -SL https://github.com/docker/compose/releases/download/v2.20.3/docker-compose-linux-x86_64 -o ~/.docker/cli-plugins/docker-compose
+            chmod +x ~/.docker/cli-plugins/docker-compose
+            ln -sf ~/.docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
+          else
+            echo -e "${GREEN}Docker Compose is already installed.${NC}"
+          fi
+
+          # Setup environment
+          echo -e "${YELLOW}Setting up environment variables...${NC}"
+          if [ ! -f ".env" ]; then
+            echo -e "${YELLOW}Creating new .env file...${NC}"
+            cat > .env << 'ENV_EOF'
+          # VPN Service Configuration
+          # Generated on $(date)
+
+          # Supabase Configuration
+          SUPABASE_URL=https://your-project.supabase.co
+          SUPABASE_KEY=your-anon-key
+          SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+
+          # VPN Panel Configuration
+          XUI_USERNAME=admin
+          XUI_PASSWORD=admin
+          XRAY_VMESS_AEAD_FORCED=false
+
+          # Telegram Bot
+          TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+
+          # System Configuration
+          TIMEZONE=Europe/Moscow
+          NODE_ENV=production
+          ENV_EOF
+            echo -e "${YELLOW}Please edit the .env file with your actual values${NC}"
+            echo -e "${YELLOW}Press any key to continue after editing...${NC}"
+            read -n 1
+          else
+            echo -e "${GREEN}Using existing .env file${NC}"
+          fi
+
+          # Start services
+          echo -e "${YELLOW}Starting services...${NC}"
+          docker-compose down --remove-orphans || true
+          docker-compose pull
+          docker-compose up -d
+
+          # Check status
+          echo -e "${YELLOW}Checking service status...${NC}"
+          docker-compose ps
+          echo -e "${GREEN}Setup completed successfully!${NC}"
+          echo -e "${BLUE}===============================================${NC}"
+          echo -e "${GREEN}VPN Service is now available at:${NC}"
+          echo -e "${GREEN}- Admin Panel: http://localhost:8080${NC}"
+          echo -e "${GREEN}- XUI Panel: http://localhost:54321${NC}"
+          echo -e "${BLUE}===============================================${NC}"
+          EOF
+          
+          # Generate update script
+          cat > deployment-package/update.sh << 'EOF'
+          #!/bin/bash
+          set -e
+
+          # Colorful output
+          GREEN='\033[0;32m'
+          YELLOW='\033[0;33m'
+          RED='\033[0;31m'
+          BLUE='\033[0;34m'
+          NC='\033[0m' # No Color
+
+          echo -e "${BLUE}===============================================${NC}"
+          echo -e "${BLUE}VPN Service Update Script${NC}"
+          echo -e "${BLUE}===============================================${NC}"
+
+          echo -e "${YELLOW}Updating services...${NC}"
+          docker-compose pull
+          docker-compose up -d
+
+          echo -e "${GREEN}Update completed successfully!${NC}"
+          docker-compose ps
+          EOF
+
+          # Generate README
+          cat > deployment-package/README.md << 'EOF'
+          # VPN Service Deployment Package
+
+          This package contains everything needed to deploy the VPN Service on your own server.
+
+          ## Prerequisites
+
+          - A Linux server with internet access
+          - Ports 80, 443, 54321, and 8080 open
+
+          ## Setup Instructions
+
+          1. Extract this package to a directory on your server
+          2. Make the setup script executable: `chmod +x setup.sh`
+          3. Run the setup script: `./setup.sh`
+          4. The script will guide you through the setup process, including creating a `.env` file with your configuration
+
+          ## Components
+
+          - **XUI Panel**: Running on port 54321
+          - **Admin Panel**: Running on port 8080
+
+          ## Updating
+
+          To update the service:
+
+          1. Make the update script executable: `chmod +x update.sh`
+          2. Run the update script: `./update.sh`
+
+          ## Manual Configuration
+
+          If you need to manually configure the service, you can edit the following files:
+
+          - `.env`: Contains environment variables for the service
+          - `docker-compose.yml`: Contains the Docker Compose configuration
+
+          After making changes, run `docker-compose up -d` to apply them.
+          EOF
+
+          # Make scripts executable
+          chmod +x deployment-package/setup.sh
+          chmod +x deployment-package/update.sh
+
+          # Create the archive
+          tar -czf vpn-service-deployment.tar.gz -C deployment-package .
+          echo "Deployment package created: vpn-service-deployment.tar.gz"
+          
+          # Generate URL for GitHub artifact download
+          REPO="${GITHUB_REPOSITORY}"
+          WORKFLOW_NAME="autopull.yml"
+          RUN_ID="${GITHUB_RUN_ID}"
+          
+          echo "package_name=vpn-service-deployment.tar.gz" >> $GITHUB_OUTPUT
+          echo "download_url=https://github.com/${REPO}/actions/runs/${RUN_ID}/artifacts" >> $GITHUB_OUTPUT
+          
+      - name: Upload deployment package
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpn-deployment-package
+          path: vpn-service-deployment.tar.gz
+          retention-days: 30
+
+      - name: Generate deployment instructions
+        run: |
+          echo "### 🚀 Deployment Package Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "A deployment package has been created for easy setup on your server." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Download Instructions:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download the package from the artifacts section of this workflow run" >> $GITHUB_STEP_SUMMARY
+          echo "2. Transfer it to your server" >> $GITHUB_STEP_SUMMARY
+          echo "3. Extract it: `tar -xzf vpn-service-deployment.tar.gz`" >> $GITHUB_STEP_SUMMARY
+          echo "4. Run the setup script: `./setup.sh`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Direct Download Link:" >> $GITHUB_STEP_SUMMARY
+          echo "You can download the deployment package from the [Artifacts section](${{ steps.create_package.outputs.download_url }}) of this workflow run." >> $GITHUB_STEP_SUMMARY 

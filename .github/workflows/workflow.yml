@@ -185,11 +185,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: ./admin-panel/package-lock.json
-
+      
       - name: Install dependencies
         working-directory: ./admin-panel
         run: npm ci || npm install
-
+      
       - name: Verify Next.js build
         working-directory: ./admin-panel
         run: |
@@ -210,7 +210,7 @@ jobs:
           
           npm run build || echo "Warning: Direct build failed, but will try in Docker"
         continue-on-error: true
-
+      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -511,66 +511,6 @@ jobs:
 
           chmod +x deploy-package/deploy.sh
 
-          # Create auto-updater script
-          cat > deploy-package/auto-update.sh << 'EOF'
-          #!/bin/bash
-          set -e
-
-          LOG_FILE="./auto-update.log"
-          TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
-
-          echo "$TIMESTAMP - Starting auto-update process" >> "$LOG_FILE"
-
-          # Check if GitHub repository exists locally
-          if [ ! -d "code" ]; then
-            echo "$TIMESTAMP - Repository directory not found. Creating..." >> "$LOG_FILE"
-            mkdir -p code
-            git clone https://github.com/$GITHUB_REPOSITORY code
-            echo "$TIMESTAMP - Repository cloned successfully" >> "$LOG_FILE"
-          fi
-
-          # Navigate to repository directory
-          cd code
-
-          # Save current commit hash
-          BEFORE_PULL=$(git rev-parse HEAD)
-          echo "$TIMESTAMP - Current commit: $BEFORE_PULL" >> "../$LOG_FILE"
-
-          # Pull latest changes
-          echo "$TIMESTAMP - Pulling latest changes..." >> "../$LOG_FILE"
-          git fetch origin
-          git reset --hard origin/main
-          
-          # Get new commit hash
-          AFTER_PULL=$(git rev-parse HEAD)
-          echo "$TIMESTAMP - New commit: $AFTER_PULL" >> "../$LOG_FILE"
-
-          # Check if there were changes
-          if [ "$BEFORE_PULL" != "$AFTER_PULL" ]; then
-            echo "$TIMESTAMP - Changes detected. Restarting services..." >> "../$LOG_FILE"
-            
-            # Return to the parent directory where docker-compose.yml exists
-            cd ..
-            
-            # Check for docker-compose.yml
-            if [ -f "docker-compose.yml" ]; then
-              echo "$TIMESTAMP - Running docker-compose..." >> "$LOG_FILE"
-              docker-compose down >> "$LOG_FILE" 2>&1
-              docker-compose pull >> "$LOG_FILE" 2>&1
-              docker-compose up -d >> "$LOG_FILE" 2>&1
-              echo "$TIMESTAMP - Services restarted successfully" >> "$LOG_FILE"
-            else
-              echo "$TIMESTAMP - No docker-compose.yml found!" >> "$LOG_FILE"
-            fi
-          else
-            echo "$TIMESTAMP - No changes detected" >> "../$LOG_FILE"
-          fi
-
-          echo "$TIMESTAMP - Auto-update process completed" >> "../$LOG_FILE"
-          EOF
-
-          chmod +x deploy-package/auto-update.sh
-
           # Create .env file
           cat > deploy-package/.env << EOF
           # Auto-generated on $(date)
@@ -629,17 +569,10 @@ jobs:
               tar -xzf deploy-package.tar.gz
               mv docker-compose.yml docker-compose.yml.new
               bash ./deploy.sh || echo "Deployment script completed with warnings"
-              
-              # Setup auto-update cron job
-              echo "🔄 Setting up automatic updates..."
-              
-              # Configure the cron job for auto-updates
-              (crontab -l 2>/dev/null | grep -v "auto-update.sh"; echo "*/5 * * * * cd ${{ secrets.DEPLOY_PATH }} && ./auto-update.sh >> auto-update.log 2>&1") | crontab -
-              echo "✅ Auto-update cron job configured"
-              
+
               # Clean up
               rm -f deploy-package.tar.gz
-              
+
               echo "✅ Auto-update system installed"
             else
               echo "❌ Deployment package not found"
@@ -659,14 +592,6 @@ jobs:
             docker ps --format "{{.Names}}: {{.Status}}" || echo "No containers running"
             echo "Recent logs:"
             docker-compose logs --tail=10 || echo "No logs available"
-            echo "Auto-update status:"
-            if [ -f "auto-update.sh" ]; then
-              echo "Auto-update script is installed"
-              echo "Cron configuration:"
-              crontab -l | grep auto-update
-            else
-              echo "Auto-update script not found"
-            fi
             echo "Verification complete."
           ENDSSH
         continue-on-error: true
@@ -677,7 +602,6 @@ jobs:
           
           if [[ "${{ steps.check_secrets.outputs.can_deploy }}" == "true" ]]; then
             echo "✅ Deployment configuration prepared" >> $GITHUB_STEP_SUMMARY
-            echo "✅ Auto-update system installed" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ Deployment skipped - missing required secrets" >> $GITHUB_STEP_SUMMARY
             echo "Please configure the following secrets in your repository settings:" >> $GITHUB_STEP_SUMMARY

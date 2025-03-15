@@ -305,7 +305,6 @@ jobs:
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: production
     concurrency:
       group: production_environment
       cancel-in-progress: false

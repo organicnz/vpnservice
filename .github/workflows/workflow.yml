@@ -89,7 +89,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: ./admin-panel/package-lock.json
-      
+
       - name: Install dependencies
         run: npm ci || npm install
 
@@ -141,10 +141,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: ./admin-panel/package-lock.json
-      
+
       - name: Install dependencies
         run: npm ci || npm install
-      
+
       - name: Run tests
         run: npm test || echo "Tests failed but continuing"
 
@@ -198,7 +198,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: ./admin-panel/package-lock.json
-      
+
       - name: Install dependencies
         working-directory: ./admin-panel
         run: npm ci || npm install
@@ -246,13 +246,13 @@ jobs:
     permissions:
       security-events: write
       contents: read
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
@@ -262,7 +262,7 @@ jobs:
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           timeout: 10m
-      
+
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         if: always()
@@ -294,7 +294,7 @@ jobs:
         if: ${{ needs.build-admin.outputs.supabase_changed == 'true' }}
         with:
           version: latest
-      
+
       - name: Deploy Supabase Edge Functions
         if: ${{ needs.build-admin.outputs.supabase_changed == 'true' }}
         run: |
@@ -307,16 +307,23 @@ jobs:
       # Generate deployment package
       - name: Create deployment package
         run: |
-          echo "Creating deployment package..."
+          echo "Creating complete deployment package..."
           mkdir -p ./deploy
           cp docker-compose.yml ./deploy/
-          cp .env.example ./deploy/
+          cp .env.example ./deploy/.env
+          # Copy entire codebase folders needed for deployment
+          mkdir -p ./deploy/admin-panel
+          cp -r admin-panel/* ./deploy/admin-panel/
+          mkdir -p ./deploy/supabase
+          cp -r supabase/* ./deploy/supabase/
+          # Add environment variables to .env file
           echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> ./deploy/.env
           echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> ./deploy/.env
           echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> ./deploy/.env
           echo "XUI_USERNAME=${{ secrets.XUI_USERNAME }}" >> ./deploy/.env
           echo "XUI_PASSWORD=${{ secrets.XUI_PASSWORD }}" >> ./deploy/.env
           echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> ./deploy/.env
+          # Create the deployment archive
           tar -czf deployment.tar.gz ./deploy
 
       # SSH Setup and Deployment
@@ -338,21 +345,40 @@ jobs:
         run: |
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
             cd ${{ secrets.DEPLOY_PATH }}
+            # Stop existing services gracefully
+            echo "Stopping existing services..."
+            docker-compose down --remove-orphans || true
+            # Backup current configuration
             echo "Backing up current configuration..."
-            cp docker-compose.yml docker-compose.yml.bak || true
-            cp .env .env.bak || true
+            mkdir -p ./backups/$(date +%Y%m%d_%H%M%S)
+            cp docker-compose.yml ./backups/$(date +%Y%m%d_%H%M%S)/docker-compose.yml.bak || true
+            cp .env ./backups/$(date +%Y%m%d_%H%M%S)/.env.bak || true
+            # Remove old code directories (but preserve volumes)
+            echo "Removing old code..."
+            rm -rf admin-panel supabase
+            # Extract deployment package
             echo "Extracting deployment package..."
             tar -xzf deployment.tar.gz
+            # Move files to correct locations
+            echo "Setting up files..."
             cp -f deploy/docker-compose.yml docker-compose.yml
             cp -f deploy/.env .env
+            cp -r deploy/admin-panel ./
+            cp -r deploy/supabase ./
+            # Clean up deployment folder
+            echo "Cleaning up..."
             rm -rf deploy deployment.tar.gz
+            # Pull latest Docker images
             echo "Pulling latest Docker images..."
             docker pull ghcr.io/mhsanaei/3x-ui:v3.0.0
+            # Build containers with new code
             echo "Building containers..."
             docker-compose build --no-cache admin
+            # Start services
             echo "Starting services..."
             docker-compose up -d
-            echo "Cleaning up..."
+            # Clean up unused Docker resources
+            echo "Cleaning up Docker resources..."
             docker system prune -f
             echo "Deployment complete!"
             docker-compose ps

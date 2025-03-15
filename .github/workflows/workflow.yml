@@ -537,26 +537,82 @@ jobs:
             # Create a sync.sh script that will automatically update the code
             cat > sync.sh << 'SYNCSCRIPT'
             #!/bin/bash
+            set -e
+            
+            echo "==============================================="
+            echo "VPN Service Auto-Sync Script"
+            echo "==============================================="
+            echo "🔄 Auto-sync triggered on $(date)"
+            
+            # Store current commit hash before update
+            PREV_COMMIT=""
+            
             # Create code directory if it doesn't exist
             if [ ! -d "code" ]; then
               echo "Creating code directory..."
               mkdir -p code
               cd code
-              git clone https://github.com/${{ github.repository }}.git .
+              git clone https://github.com/$GITHUB_REPOSITORY .
+              echo "Repository cloned successfully."
             else
               cd code
+              PREV_COMMIT=$(git rev-parse HEAD)
+              echo "Updating existing repository..."
               git fetch origin
               git reset --hard origin/main
+              CURRENT_COMMIT=$(git rev-parse HEAD)
+              echo "Repository updated to latest commit."
             fi
-            echo "Code updated at $(date)"
+            
+            # Check if the code actually changed
+            if [ -n "$PREV_COMMIT" ] && [ "$PREV_COMMIT" != "$CURRENT_COMMIT" ]; then
+              echo "Code changes detected. Triggering deployment..."
+              cd ..
+              
+              # Create need_deploy flag
+              touch code/need_deploy
+            fi
+            
+            # Check if we need to rebuild and redeploy
+            if [ -f "code/need_deploy" ]; then
+              echo "Deployment flag found. Starting deployment process..."
+              
+              # Check if there's a docker-compose file
+              if [ -f "docker-compose.yml" ]; then
+                echo "🛑 Stopping existing services..."
+                docker-compose down
+                
+                echo "🔄 Pulling latest images..."
+                docker-compose pull
+                
+                echo "🚀 Starting services..."
+                docker-compose up -d
+                
+                echo "✅ Services deployed successfully!"
+              fi
+              
+              # Remove the deployment flag
+              rm -f code/need_deploy
+              echo "Deployment flag cleared."
+            else
+              echo "No deployment needed at this time."
+            fi
+            
+            echo "✅ Auto-sync completed on $(date)"
             SYNCSCRIPT
             chmod +x sync.sh
+            
+            # Define the GitHub repository variable
+            echo "GITHUB_REPOSITORY=${{ github.repository }}" > .sync_env
+            
             # Set up a cron job to run every 5 minutes if it doesn't exist already
             if ! crontab -l | grep -q "sync.sh"; then
-              (crontab -l 2>/dev/null; echo "*/5 * * * * cd ${{ secrets.DEPLOY_PATH }} && ./sync.sh >> sync.log 2>&1") | crontab -
+              (crontab -l 2>/dev/null; echo "*/5 * * * * cd ${{ secrets.DEPLOY_PATH }} && . .sync_env && ./sync.sh >> sync.log 2>&1") | crontab -
               echo "Added auto-sync cron job"
             fi
+            
             # Run the sync script immediately
+            export GITHUB_REPOSITORY="${{ github.repository }}"
             ./sync.sh
           ENDSSH
 

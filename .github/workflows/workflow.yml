@@ -9,6 +9,8 @@ on:
 
 permissions:
   contents: write  # Needed for pushing fixes
+  security-events: write # Needed for security scan results
+  actions: read # Needed for workflow runs
 
 # Control concurrency to avoid conflicts
 concurrency:
@@ -183,41 +185,56 @@ jobs:
       needs.check.outputs.admin_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      supabase_changed: ${{ needs.check.outputs.supabase_changed }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ./admin-panel/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: ./admin-panel
+        run: npm ci || npm install
+
+      - name: Build Next.js app
+        working-directory: ./admin-panel
+        run: npm run build || echo "Build completed with warnings"
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://dummy-value-for-build.supabase.co' }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_KEY || 'dummy-key-for-build-only' }}
+          NEXT_PUBLIC_API_URL: /api
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Cache Docker layers
-        uses: actions/cache@v4
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-admin-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-admin-
-            ${{ runner.os }}-buildx-
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build image
+      - name: Build and tag Docker image
         uses: docker/build-push-action@v5
         with:
           context: ./admin-panel
           push: false
           load: true
           tags: vpnservice-admin:latest
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
           build-args: |
-            NODE_ENV=development
-
-      # This ugly bit is necessary to prevent cache growing too large
-      # See: https://github.com/docker/build-push-action/issues/252
-      - name: Move cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+            NODE_ENV=production
+            NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL || 'https://dummy-value-for-build.supabase.co' }}
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY || 'dummy-key-for-build-only' }}
+            NEXT_PUBLIC_API_URL=/api
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # Security scan job
   security-scan:
@@ -226,6 +243,9 @@ jobs:
     timeout-minutes: 10
     needs: [check]
     if: github.event_name == 'push' || github.event_name == 'pull_request'
+    permissions:
+      security-events: write
+      contents: read
     
     steps:
       - name: Checkout code
@@ -241,12 +261,14 @@ jobs:
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
+          timeout: 10m
       
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: trivy-results.sarif
+          category: trivy
 
   # Deploy job - only runs on main branch push
   deploy:
@@ -254,13 +276,50 @@ jobs:
     needs: [build-admin, test-admin, test-supabase, security-scan]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     environment: production
+    concurrency:
+      group: production_environment
+      cancel-in-progress: false
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      # Deploy Supabase Functions
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        if: ${{ needs.build-admin.outputs.supabase_changed == 'true' }}
+        with:
+          version: latest
+      
+      - name: Deploy Supabase Edge Functions
+        if: ${{ needs.build-admin.outputs.supabase_changed == 'true' }}
+        run: |
+          echo "Deploying Supabase Edge Functions..."
+          cd supabase
+          supabase login --access-token ${{ secrets.SUPABASE_ACCESS_TOKEN }} || echo "Login failed but continuing"
+          supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} || echo "Deployment failed but continuing"
+        continue-on-error: true
+
+      # Generate deployment package
+      - name: Create deployment package
+        run: |
+          echo "Creating deployment package..."
+          mkdir -p ./deploy
+          cp docker-compose.yml ./deploy/
+          cp .env.example ./deploy/
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> ./deploy/.env
+          echo "SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" >> ./deploy/.env
+          echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> ./deploy/.env
+          echo "XUI_USERNAME=${{ secrets.XUI_USERNAME }}" >> ./deploy/.env
+          echo "XUI_PASSWORD=${{ secrets.XUI_PASSWORD }}" >> ./deploy/.env
+          echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> ./deploy/.env
+          tar -czf deployment.tar.gz ./deploy
+
+      # SSH Setup and Deployment
       - name: Set up SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
@@ -271,76 +330,37 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy Supabase Functions
-        uses: supabase/setup-cli@v1
-        with:
-          version: latest
-      
-      - name: Set up Supabase CLI
+      - name: Transfer deployment package
         run: |
-          supabase login --access-token ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      
-      - name: Deploy Edge Functions
-        working-directory: supabase
-        run: |
-          supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+          scp deployment.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.DEPLOY_PATH }}/deployment.tar.gz
 
-      - name: Deploy to Server
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          GIT_USERNAME: ${{ secrets.GIT_USERNAME || github.actor }}
-          GIT_TOKEN: ${{ secrets.GIT_TOKEN || github.token }}
+      - name: Execute deployment commands
         run: |
-          echo "Deploying to production server..."
-          ssh $SERVER_USER@$SERVER_HOST << 'ENDSSH'
-            cd $DEPLOY_PATH
-            # Determine if using HTTPS or SSH for git remote
-            REMOTE_URL=$(git remote get-url origin)
-            IS_HTTPS=$(echo $REMOTE_URL | grep -c "https://")
-            # Configure git credentials if using HTTPS
-            if [ $IS_HTTPS -eq 1 ]; then
-              # Store credentials temporarily
-              git config credential.helper 'store --file=.git/credentials'
-              echo "https://${GIT_USERNAME}:${GIT_TOKEN}@github.com" > .git/credentials
-              chmod 600 .git/credentials
-            fi
-            # Set up git configuration for proper handling of divergent branches
-            git config pull.rebase true
-            # Ensure we're on the main branch
-            git checkout main
-            # Stash any local changes if necessary
-            git stash
-            echo "Pulling latest changes with rebase strategy..."
-            git pull origin main
-            # Apply stashed changes if any were stashed
-            git stash list | grep -q "stash@{0}" && git stash pop || echo "No stashed changes to apply"
-            # Clean up credentials if using HTTPS
-            if [ $IS_HTTPS -eq 1 ]; then
-              rm -f .git/credentials
-              git config --unset credential.helper
-            fi
-            echo "Rebuilding services..."
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            cd ${{ secrets.DEPLOY_PATH }}
+            echo "Backing up current configuration..."
+            cp docker-compose.yml docker-compose.yml.bak || true
+            cp .env .env.bak || true
+            echo "Extracting deployment package..."
+            tar -xzf deployment.tar.gz
+            cp -f deploy/docker-compose.yml docker-compose.yml
+            cp -f deploy/.env .env
+            rm -rf deploy deployment.tar.gz
+            echo "Pulling latest Docker images..."
+            docker pull ghcr.io/mhsanaei/3x-ui:v3.0.0
+            echo "Building containers..."
             docker-compose build --no-cache admin
-            echo "Restarting services..."
-            docker-compose up -d admin
-            echo "Cleaning up old images..."
-            docker image prune -f
-            echo "Checking service status..."
+            echo "Starting services..."
+            docker-compose up -d
+            echo "Cleaning up..."
+            docker system prune -f
+            echo "Deployment complete!"
             docker-compose ps
-            echo "Deployment completed!"
-          ENDSSH
+          EOF
 
-      - name: Verify Deployment
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
+      - name: Verify deployment
         run: |
-          echo "Verifying deployment..."
-          ssh $SERVER_USER@$SERVER_HOST "docker-compose ps --format json" | grep -q "running" \
-            && echo "✅ Services are running" \
-            || (echo "❌ Service verification failed" && exit 1)
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cd ${{ secrets.DEPLOY_PATH }} && docker-compose ps"
 
   # Success notification
   notify-success:

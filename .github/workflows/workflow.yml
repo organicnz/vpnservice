@@ -11,6 +11,7 @@ permissions:
   contents: write  # Needed for pushing fixes
   security-events: write # Needed for security scan results
   actions: read # Needed for workflow runs
+  packages: write # Needed for GitHub Container Registry
 
 # Control concurrency to avoid conflicts
 concurrency:
@@ -20,6 +21,8 @@ concurrency:
 env:
   NODE_VERSION: 20
   DOCKER_BUILDKIT: 1
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/admin
 
 jobs:
   # Check job - always runs for basic checks and diagnostics
@@ -30,13 +33,11 @@ jobs:
     outputs:
       admin_changed: ${{ steps.filter.outputs.admin }}
       supabase_changed: ${{ steps.filter.outputs.supabase }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 50
-
       - name: Filter changed files
         uses: dorny/paths-filter@v3
         id: filter
@@ -46,7 +47,6 @@ jobs:
               - 'admin-panel/**'
             supabase:
               - 'supabase/**'
-
       - name: Display event info
         run: |
           echo "Event name: ${{ github.event_name }}"
@@ -54,7 +54,6 @@ jobs:
           echo "Changed components:"
           echo "  - Admin Panel: ${{ steps.filter.outputs.admin }}"
           echo "  - Supabase: ${{ steps.filter.outputs.supabase }}"
-
       - name: Troubleshooting info
         run: |
           echo "GitHub workflow diagnostics:"
@@ -78,26 +77,21 @@ jobs:
     defaults:
       run:
         working-directory: ./admin-panel
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: ./admin-panel/package-lock.json
-
       - name: Install dependencies
         run: npm ci || npm install
-
       - name: Run linting
         id: lint
         run: npm run lint
         continue-on-error: true
-
       - name: Run auto-fix if linting failed
         if: steps.lint.outcome == 'failure' && github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
@@ -105,7 +99,6 @@ jobs:
             node fix-lint.js || echo "Fix script completed with warnings"
           fi
           npm run lint:fix || echo "Linting fix completed with issues"
-
       - name: Auto-commit fixes on main branch
         if: steps.lint.outcome == 'failure' && github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
@@ -130,21 +123,17 @@ jobs:
     defaults:
       run:
         working-directory: ./admin-panel
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: ./admin-panel/package-lock.json
-
       - name: Install dependencies
         run: npm ci || npm install
-
       - name: Run tests
         run: npm test || echo "Tests failed but continuing"
 
@@ -160,81 +149,64 @@ jobs:
     defaults:
       run:
         working-directory: ./supabase/functions
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Setup Deno
         uses: denoland/setup-deno@v1
         with:
           deno-version: v1.x
-
       - name: Lint Deno
         run: deno lint || echo "Linting completed with warnings"
-
       - name: Run Deno tests
         run: deno test --allow-net --allow-env --allow-read || echo "Tests completed with issues"
 
-  # Build admin panel
+  # Build and publish admin panel
   build-admin:
     name: Build Admin Panel
     needs: [check, lint-admin]
     if: |
-      (github.event_name == 'push' || github.event_name == 'pull_request') &&
-      needs.check.outputs.admin_changed == 'true'
+      (github.event_name == 'push' || github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
       supabase_changed: ${{ needs.check.outputs.supabase_changed }}
-
+      image_tag: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: ./admin-panel/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ./admin-panel
-        run: npm ci || npm install
-
-      - name: Build Next.js app
-        working-directory: ./admin-panel
-        run: npm run build || echo "Build completed with warnings"
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://dummy-value-for-build.supabase.co' }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_KEY || 'dummy-key-for-build-only' }}
-          NEXT_PUBLIC_API_URL: /api
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
+      - name: Log in to Container registry
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and tag Docker image
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
+            type=ref,event=branch
+            type=ref,event=pr
+      - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: ./admin-panel
-          push: false
-          load: true
-          tags: vpnservice-admin:latest
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: |
             NODE_ENV=production
             NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL || 'https://dummy-value-for-build.supabase.co' }}
             NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY || 'dummy-key-for-build-only' }}
             NEXT_PUBLIC_API_URL=/api
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   # Security scan job
   security-scan:
@@ -246,13 +218,11 @@ jobs:
     permissions:
       security-events: write
       contents: read
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
@@ -262,7 +232,6 @@ jobs:
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           timeout: 10m
-
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         if: always()
@@ -270,112 +239,80 @@ jobs:
           sarif_file: trivy-results.sarif
           category: trivy
 
-  # Deploy job - only runs on main branch push
-  deploy:
+  # Deploy Supabase Functions
+  deploy-supabase:
+    name: Deploy Supabase Functions
+    needs: [build-admin, test-supabase]
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      (needs.build-admin.outputs.supabase_changed == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Deploy Supabase Edge Functions
+        run: |
+          echo "Deploying Supabase Edge Functions..."
+          cd supabase
+          supabase login --access-token ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+
+  # Deploy to production
+  deploy-production:
     name: Deploy to Production
-    needs: [build-admin, test-admin, test-supabase, security-scan]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build-admin, test-admin, test-supabase, security-scan, deploy-supabase]
+    if: |
+      success() &&
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
     concurrency:
       group: production_environment
       cancel-in-progress: false
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          
-      # Pre-deployment preparation
-      - name: Install deployment dependencies
+      - name: Create deployment configuration
         run: |
-          sudo apt-get update
-          sudo apt-get install -y rsync sshpass openssh-client
-
-      # Deploy Supabase Functions first
-      - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v1
-        if: needs.build-admin.outputs.supabase_changed == 'true' || github.event_name == 'workflow_dispatch'
-        with:
-          version: latest
-      
-      - name: Deploy Supabase Edge Functions
-        if: needs.build-admin.outputs.supabase_changed == 'true' || github.event_name == 'workflow_dispatch'
-        run: |
-          echo "Deploying Supabase Edge Functions..."
-          cd supabase
-          supabase login --access-token ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-        continue-on-error: true
-      
-      # Build Docker image and push to registry for better reliability
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Build and push Admin Docker image
-        id: docker_build
-        uses: docker/build-push-action@v5
-        with:
-          context: ./admin-panel
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/admin:latest
-            ghcr.io/${{ github.repository }}/admin:${{ github.sha }}
-          build-args: |
-            NODE_ENV=production
-            NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL || 'https://dummy-value-for-build.supabase.co' }}
-            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY || 'dummy-key-for-build-only' }}
-            NEXT_PUBLIC_API_URL=/api
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      
-      # Prepare deployment files
-      - name: Prepare deployment files
-        run: |
-          # Create deployment directory
           mkdir -p deploy-package
-          
-          # Create modified docker-compose.yml that uses the image we pushed
-          cat > deploy-package/docker-compose.yml << 'EOL'
+          # Create docker-compose.yml for deployment
+          cat > deploy-package/docker-compose.yml << EOF
           version: '3.8'
-          
-          # Global x-* fields for reuse
+
           x-logging: &default-logging
             driver: json-file
             options:
               max-size: 10m
               max-file: 3
-          
+
           x-healthcheck: &default-healthcheck
             interval: 30s
             timeout: 10s
             retries: 3
             start_period: 20s
-          
+
           services:
-            # 3x-ui VPN Panel
             xui:
               image: ghcr.io/mhsanaei/3x-ui:v3.0.0
               container_name: xray-ui
               restart: unless-stopped
               ports:
-                - 54321:2053 # Panel port (external:internal)
-                - 443:443     # HTTPS port (for Xray services)
-                - 80:80       # HTTP port (for certbot)
+                - 54321:2053
+                - 443:443
+                - 80:80
               environment:
-                - TZ=${TIMEZONE:-Europe/Moscow}
-                - XRAY_VMESS_AEAD_FORCED=${XRAY_VMESS_AEAD_FORCED:-false}
-                - XUI_USERNAME=${XUI_USERNAME:-admin}
-                - XUI_PASSWORD=${XUI_PASSWORD:-admin}
+                - TZ=\${TIMEZONE:-Europe/Moscow}
+                - XRAY_VMESS_AEAD_FORCED=\${XRAY_VMESS_AEAD_FORCED:-false}
+                - XUI_USERNAME=\${XUI_USERNAME:-admin}
+                - XUI_PASSWORD=\${XUI_PASSWORD:-admin}
                 - SECURITY_PANEL_ENFORCE_HTTPS=false
               volumes:
                 - xui_db_data:/etc/x-ui/:rw
@@ -395,26 +332,25 @@ jobs:
                   condition: on-failure
                   max_attempts: 3
                   window: 120s
-          
-            # Admin Panel with Supabase integration
+
             admin:
-              image: ghcr.io/${{ github.repository }}/admin:${{ github.sha }}
+              image: ${{ needs.build-admin.outputs.image_tag }}
               container_name: vpn-admin
               restart: unless-stopped
               depends_on:
                 xui:
                   condition: service_healthy
               environment:
-                - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
-                - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
+                - NEXT_PUBLIC_SUPABASE_URL=\${SUPABASE_URL}
+                - NEXT_PUBLIC_SUPABASE_ANON_KEY=\${SUPABASE_KEY}
                 - XUI_PANEL_URL=http://xui:2053
-                - XUI_USERNAME=${XUI_USERNAME:-admin}
-                - XUI_PASSWORD=${XUI_PASSWORD:-admin}
-                - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+                - XUI_USERNAME=\${XUI_USERNAME:-admin}
+                - XUI_PASSWORD=\${XUI_PASSWORD:-admin}
+                - TELEGRAM_BOT_TOKEN=\${TELEGRAM_BOT_TOKEN}
                 - NODE_ENV=production
                 - NODE_OPTIONS=--max-old-space-size=512
               ports:
-                - 8080:3000  # Map container's 3000 port to host's 8080
+                - 8080:3000
               networks:
                 - vpn-network
               logging: *default-logging
@@ -430,12 +366,11 @@ jobs:
                   condition: on-failure
                   max_attempts: 3
                   window: 120s
-              read_only: false
               security_opt:
                 - no-new-privileges:true
               cap_drop:
                 - ALL
-          
+
           networks:
             vpn-network:
               driver: bridge
@@ -445,29 +380,25 @@ jobs:
                   - subnet: 172.28.0.0/16
               driver_opts:
                 com.docker.network.bridge.name: vpn0
-          
-          # Named volumes for data persistence
+
           volumes:
             xui_db_data:
               driver: local
             xui_cert_data:
               driver: local
-          EOL
-          
+          EOF
+
           # Create deployment script
-          cat > deploy-package/deploy.sh << 'EOL'
+          cat > deploy-package/deploy.sh << 'EOF'
           #!/bin/bash
           set -e
-          
-          # Display banner
+
           echo "==============================================="
           echo "VPN Service Deployment Script"
           echo "==============================================="
-          
-          # Timestamp for backups
+
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          
-          # Backup existing config
+
           echo "📦 Creating backup..."
           mkdir -p ./backups/$TIMESTAMP
           if [ -f docker-compose.yml ]; then
@@ -476,39 +407,33 @@ jobs:
           if [ -f .env ]; then
             cp .env ./backups/$TIMESTAMP/
           fi
-          
-          # Stop existing services
+
           echo "🛑 Stopping services..."
           if [ -f docker-compose.yml ]; then
             docker-compose down --remove-orphans || true
           fi
-          
-          # Copy new docker-compose file
+
           echo "📋 Setting up new configuration..."
           cp -f docker-compose.yml.new docker-compose.yml
-          
-          # Pull images
+
           echo "🚀 Pulling latest images..."
           docker-compose pull
-          
-          # Start services
+
           echo "🚀 Starting services..."
           docker-compose up -d
-          
-          # Cleanup
+
           echo "🧹 Cleaning up..."
           docker system prune -f
-          
+
           echo "✅ Deployment completed successfully!"
           docker-compose ps
-          EOL
-          
-          # Make script executable
+          EOF
+
           chmod +x deploy-package/deploy.sh
-          
-          # Create .env file with all environment variables
-          cat > deploy-package/.env << EOL
-          # Auto-generated environment file - $(date)
+
+          # Create .env file
+          cat > deploy-package/.env << EOF
+          # Auto-generated on $(date)
           SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -517,32 +442,28 @@ jobs:
           TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
           NODE_ENV=production
           TIMEZONE=Europe/Moscow
-          EOL
-          
-          # Create archive of deployment package
+          EOF
+
+          # Create package
           tar -czf deploy-package.tar.gz -C deploy-package .
-      
-      # Set up SSH connection
-      - name: Configure SSH
+
+      - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-      
-      - name: Add host key
+
+      - name: Configure SSH known hosts
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
-      
-      # Transfer and deploy
-      - name: Transfer deployment package
+
+      - name: Deploy to production server
         run: |
-          echo "Transferring deployment package to server..."
+          echo "Transferring deployment package..."
           scp deploy-package.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.DEPLOY_PATH }}/
-      
-      - name: Execute deployment
-        run: |
-          echo "Executing deployment on server..."
+
+          echo "Executing deployment..."
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
             cd ${{ secrets.DEPLOY_PATH }}
             tar -xzf deploy-package.tar.gz
@@ -550,41 +471,33 @@ jobs:
             bash ./deploy.sh
             rm -f deploy-package.tar.gz deploy.sh
           ENDSSH
-      
-      # Verify deployment
+
       - name: Verify deployment
         run: |
           echo "Verifying deployment..."
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
             cd ${{ secrets.DEPLOY_PATH }}
-            
-            # Check if containers are running
-            echo "Checking container status..."
+
+            echo "Container status:"
             docker-compose ps
-            
-            # Check container logs for errors
-            echo "Checking container logs (last 10 lines)..."
-            docker-compose logs --tail=10
-            
-            # Check container health
-            echo "Checking container health..."
+
+            echo "Container health:"
             docker ps --format "{{.Names}}: {{.Status}}"
-            
-            # Print success message
-            echo "Deployment verification completed."
+
+            echo "Recent logs:"
+            docker-compose logs --tail=10
+
+            echo "Verification complete."
           ENDSSH
 
   # Success notification
   notify-success:
     name: Notify Success
-    needs: [build-admin, test-admin, test-supabase, deploy]
-    if: success()
+    needs: [build-admin, test-admin, test-supabase, deploy-production]
+    if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Post success status
         run: |
           echo "CI/CD Pipeline completed successfully!"
-          # In a real scenario, you would:
-          # 1. Send a notification to Slack, Teams, or email
-          # 2. Update a status page
-          # 3. Create a GitHub deployment status
+          echo "Deployed admin panel version: ${{ needs.build-admin.outputs.image_tag }}"

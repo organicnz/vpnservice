@@ -887,51 +887,117 @@ jobs:
               set -e
 
               LOG_FILE="./auto-update.log"
-              REPO_PATH="${{ secrets.DEPLOY_PATH }}"
               TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
-
+              DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
+              
               echo "$TIMESTAMP - Starting auto-update process" >> "$LOG_FILE"
-
-              # Navigate to repository directory
-              cd "$REPO_PATH"
-
-              # Save current commit hash
-              BEFORE_PULL=$(git rev-parse HEAD 2>/dev/null || echo "none")
-              echo "$TIMESTAMP - Current commit: $BEFORE_PULL" >> "$LOG_FILE"
-
-              # Pull latest changes
-              echo "$TIMESTAMP - Pulling latest changes..." >> "$LOG_FILE"
-              git pull >> "$LOG_FILE" 2>&1 || {
-                echo "$TIMESTAMP - Failed to pull latest changes" >> "$LOG_FILE"
-                exit 1
-              }
-
-              # Get new commit hash
-              AFTER_PULL=$(git rev-parse HEAD 2>/dev/null || echo "none")
-              echo "$TIMESTAMP - New commit: $AFTER_PULL" >> "$LOG_FILE"
-
-              # Check if there were changes
-              if [ "$BEFORE_PULL" != "$AFTER_PULL" ]; then
-                echo "$TIMESTAMP - Changes detected. Restarting services..." >> "$LOG_FILE"
-                
-                # Check for docker-compose.yml
-                if [ -f "$REPO_PATH/docker-compose.yml" ]; then
-                  echo "$TIMESTAMP - Running docker-compose..." >> "$LOG_FILE"
-                  cd "$REPO_PATH"
-                  docker-compose down >> "$LOG_FILE" 2>&1 || echo "$TIMESTAMP - Warning: docker-compose down failed" >> "$LOG_FILE"
-                  docker-compose pull >> "$LOG_FILE" 2>&1 || echo "$TIMESTAMP - Warning: docker-compose pull failed" >> "$LOG_FILE"
-                  docker-compose up -d >> "$LOG_FILE" 2>&1 || echo "$TIMESTAMP - Warning: docker-compose up failed" >> "$LOG_FILE"
-                  echo "$TIMESTAMP - Services restarted successfully" >> "$LOG_FILE"
-                  
-                  # Clean up Docker system
-                  docker system prune -f >> "$LOG_FILE" 2>&1 || true
-                else
-                  echo "$TIMESTAMP - No docker-compose.yml found!" >> "$LOG_FILE"
-                fi
+              
+              # Create a directory to store temporary files
+              TEMP_DIR="./tmp_update"
+              mkdir -p "$TEMP_DIR"
+              
+              # Download the latest deployment package from GitHub
+              echo "$TIMESTAMP - Downloading latest deployment package" >> "$LOG_FILE"
+              ARTIFACT_URL="https://api.github.com/repos/${{ github.repository }}/actions/artifacts"
+              
+              # Get the latest artifact URL
+              LATEST_ARTIFACT=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN || 'ghp_placeholder' }}" "$ARTIFACT_URL" | grep -o '"archive_download_url": "[^"]*"' | head -1 | cut -d'"' -f4)
+              
+              if [ -z "$LATEST_ARTIFACT" ]; then
+                echo "$TIMESTAMP - Failed to find latest artifact. Using current deployment." >> "$LOG_FILE"
               else
-                echo "$TIMESTAMP - No changes detected" >> "$LOG_FILE"
+                echo "$TIMESTAMP - Found latest artifact: $LATEST_ARTIFACT" >> "$LOG_FILE"
+                
+                # Download the artifact
+                if curl -s -L -o "$TEMP_DIR/latest.zip" -H "Authorization: token ${{ secrets.GITHUB_TOKEN || 'ghp_placeholder' }}" "$LATEST_ARTIFACT"; then
+                  echo "$TIMESTAMP - Download successful, extracting..." >> "$LOG_FILE"
+                  
+                  # Extract the deployment package
+                  unzip -q -o "$TEMP_DIR/latest.zip" -d "$TEMP_DIR" || {
+                    echo "$TIMESTAMP - Failed to extract package" >> "$LOG_FILE"
+                    rm -rf "$TEMP_DIR"
+                    exit 1
+                  }
+                  
+                  # Check if deployment package exists
+                  if [ -f "$TEMP_DIR/vpn-service-deployment.tar.gz" ]; then
+                    echo "$TIMESTAMP - Deployment package found, extracting..." >> "$LOG_FILE"
+                    tar -xzf "$TEMP_DIR/vpn-service-deployment.tar.gz" -C "$TEMP_DIR" || {
+                      echo "$TIMESTAMP - Failed to extract tar file" >> "$LOG_FILE"
+                      rm -rf "$TEMP_DIR"
+                      exit 1
+                    }
+                    
+                    # Compare the extracted docker-compose with current one
+                    DIFF_OUTPUT=""
+                    if [ -f "$DEPLOY_PATH/docker-compose.yml" ] && [ -f "$TEMP_DIR/docker-compose.yml" ]; then
+                      DIFF_OUTPUT=$(diff "$DEPLOY_PATH/docker-compose.yml" "$TEMP_DIR/docker-compose.yml" 2>&1 || true)
+                    else
+                      # Force update if one of the files doesn't exist
+                      DIFF_OUTPUT="force_update"
+                    fi
+                    
+                    if [ -n "$DIFF_OUTPUT" ]; then
+                      echo "$TIMESTAMP - Changes detected in configuration. Updating services..." >> "$LOG_FILE"
+                      
+                      # Backup current files
+                      BACKUP_DIR="$DEPLOY_PATH/backups/$(date +%Y%m%d_%H%M%S)"
+                      mkdir -p "$BACKUP_DIR"
+                      cp -f "$DEPLOY_PATH/docker-compose.yml" "$BACKUP_DIR/" 2>/dev/null || true
+                      cp -f "$DEPLOY_PATH/.env" "$BACKUP_DIR/" 2>/dev/null || true
+                      
+                      # Copy new files
+                      cp -f "$TEMP_DIR/docker-compose.yml" "$DEPLOY_PATH/" || {
+                        echo "$TIMESTAMP - Failed to copy docker-compose.yml" >> "$LOG_FILE"
+                      }
+                      
+                      # Preserve .env file or create a new one if it doesn't exist
+                      if [ ! -f "$DEPLOY_PATH/.env" ] && [ -f "$TEMP_DIR/.env" ]; then
+                        cp -f "$TEMP_DIR/.env" "$DEPLOY_PATH/" || {
+                          echo "$TIMESTAMP - Failed to copy .env" >> "$LOG_FILE"
+                        }
+                      fi
+                      
+                      # Execute docker-compose commands to update services
+                      cd "$DEPLOY_PATH" || {
+                        echo "$TIMESTAMP - Failed to change to deploy path" >> "$LOG_FILE"
+                        rm -rf "$TEMP_DIR"
+                        exit 1
+                      }
+                      
+                      echo "$TIMESTAMP - Stopping services..." >> "$LOG_FILE"
+                      docker-compose down --remove-orphans >> "$LOG_FILE" 2>&1 || echo "$TIMESTAMP - Warning: docker-compose down failed" >> "$LOG_FILE"
+                      
+                      echo "$TIMESTAMP - Pulling latest images..." >> "$LOG_FILE"
+                      docker-compose pull >> "$LOG_FILE" 2>&1 || echo "$TIMESTAMP - Warning: docker-compose pull failed" >> "$LOG_FILE"
+                      
+                      echo "$TIMESTAMP - Starting services..." >> "$LOG_FILE"
+                      docker-compose up -d >> "$LOG_FILE" 2>&1 || {
+                        echo "$TIMESTAMP - Failed to start services. Reverting to backup..." >> "$LOG_FILE"
+                        cp -f "$BACKUP_DIR/docker-compose.yml" "$DEPLOY_PATH/" 2>/dev/null || true
+                        docker-compose up -d >> "$LOG_FILE" 2>&1 || echo "$TIMESTAMP - Revert also failed!" >> "$LOG_FILE"
+                      }
+                      
+                      echo "$TIMESTAMP - Cleaning up..." >> "$LOG_FILE"
+                      docker system prune -f >> "$LOG_FILE" 2>&1 || true
+                      
+                      # Clean up old backups (keep last 5)
+                      ls -1d "$DEPLOY_PATH/backups"/* 2>/dev/null | sort -r | tail -n +6 | xargs rm -rf 2>/dev/null || true
+                      
+                      echo "$TIMESTAMP - Update completed successfully" >> "$LOG_FILE"
+                    else
+                      echo "$TIMESTAMP - No changes detected in configuration. Skipping update." >> "$LOG_FILE"
+                    fi
+                  else
+                    echo "$TIMESTAMP - Deployment package not found in downloaded artifact" >> "$LOG_FILE"
+                  fi
+                else
+                  echo "$TIMESTAMP - Failed to download latest artifact" >> "$LOG_FILE"
+                fi
               fi
-
+              
+              # Clean up
+              rm -rf "$TEMP_DIR"
               echo "$TIMESTAMP - Auto-update process completed" >> "$LOG_FILE"
               EOF
 

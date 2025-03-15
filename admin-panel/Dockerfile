@@ -11,15 +11,9 @@ RUN apk add --no-cache libc6-compat python3 make g++
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install dependencies with a more resilient approach
+# Install dependencies with improved error handling
 RUN npm config set registry https://registry.npmjs.org/ && \
-    if [ -s package-lock.json ] && grep -q "lockfileVersion" package-lock.json; then \
-      echo "Valid package-lock.json found, using npm ci"; \
-      npm ci --prefer-offline --no-audit; \
-    else \
-      echo "No valid package-lock.json found, using npm install"; \
-      npm install; \
-    fi
+    npm ci --prefer-offline --no-audit || npm install --no-audit
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -34,7 +28,7 @@ RUN mkdir -p public
 ARG NODE_ENV=production
 ARG NEXT_PUBLIC_SUPABASE_URL=https://dummy-value-for-build.supabase.co
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=dummy-key-for-build-only
-ARG NEXT_PUBLIC_API_URL=http://localhost:3000
+ARG NEXT_PUBLIC_API_URL=/api
 
 # Set environment variables
 ENV NEXT_TELEMETRY_DISABLED=1 \
@@ -43,16 +37,13 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
     NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY \
     NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
-# Build the application with detailed error logging
+# Build the application with simplified error handling
 RUN echo "Starting Next.js build..." && \
-    if npm run build; then \
-      echo "Build successful"; \
-    else \
-      echo "Build failed. Creating error page..."; \
-      mkdir -p .next/static .next/standalone .next/server .next/cache && \
-      echo 'export default function Page() { return <div><h1>Admin Panel Temporarily Unavailable</h1><p>The system is being updated. Please try again in a few minutes.</p></div> }' > ./app/page.tsx && \
-      npm run build; \
-    fi
+    npm run build || \
+    (echo "Build failed. Creating simple error page..." && \
+    mkdir -p .next/static .next/standalone .next/server .next/cache && \
+    echo 'export default function Page() { return <div><h1>Admin Panel Temporarily Unavailable</h1><p>The system is being updated. Please try again in a few minutes.</p></div> }' > ./app/page.tsx && \
+    NODE_OPTIONS=--max_old_space_size=4096 npm run build)
 
 # Production image, copy all the files and run next
 FROM base AS runner
@@ -69,7 +60,7 @@ RUN addgroup --system --gid 1001 nodejs && \
 RUN mkdir -p /tmp/next && \
     chmod -R 777 /tmp/next
 
-# Create necessary directories
+# Create necessary directories and set permissions
 RUN mkdir -p ./public ./.next/static && \
     chown -R nextjs:nodejs /app
 

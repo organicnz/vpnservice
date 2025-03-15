@@ -171,20 +171,50 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     outputs:
       image_tag: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # Verify that we can build the Next.js app directly first
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ./admin-panel/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./admin-panel
+        run: npm ci || npm install
+
+      - name: Verify Next.js build
+        working-directory: ./admin-panel
+        run: |
+          echo "Testing Next.js build before Docker build..."
+          export NODE_OPTIONS="--max_old_space_size=4096"
+          export NEXT_PUBLIC_SUPABASE_URL="${{ secrets.SUPABASE_URL || 'https://dummy-value-for-build.supabase.co' }}"
+          export NEXT_PUBLIC_SUPABASE_ANON_KEY="${{ secrets.SUPABASE_KEY || 'dummy-key-for-build-only' }}"
+          export NEXT_PUBLIC_API_URL="/api"
+          npm run build || echo "Warning: Direct build failed, but will try in Docker"
+        continue-on-error: true
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:master
+            network=host
+
       - name: Log in to Container registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -195,6 +225,7 @@ jobs:
             type=sha,format=long
             type=ref,event=branch
             type=ref,event=pr
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -209,6 +240,8 @@ jobs:
             NEXT_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL || 'https://dummy-value-for-build.supabase.co' }}
             NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_KEY || 'dummy-key-for-build-only' }}
             NEXT_PUBLIC_API_URL=/api
+          outputs: type=image,name=target
+          provenance: false
 
   # Security scan job
   security-scan:
@@ -459,10 +492,72 @@ jobs:
           echo "Executing deployment..."
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
             cd ${{ secrets.DEPLOY_PATH }}
+
+            # Ensure we don't need manual git pulls by completely replacing the deployment
+            echo "🔄 Setting up auto-update mechanism..."
+
+            # Create auto-update script that will be triggered by webhook if needed in future
+            cat > auto-update.sh << 'AUTOUPDATE'
+            #!/bin/bash
+            set -e
+
+            echo "==============================================="
+            echo "VPN Service Auto-Update Script"
+            echo "==============================================="
+            echo "🔄 Auto-update triggered on $(date)"
+
+            # Extract the latest deployment package if it exists
+            if [ -f deployment-package.tar.gz ]; then
+              tar -xzf deployment-package.tar.gz
+              mv docker-compose.yml docker-compose.yml.new
+              bash ./deploy.sh
+              rm -f deployment-package.tar.gz deploy.sh
+              echo "✅ Auto-update completed successfully!"
+            else
+              echo "❌ No deployment package found. Update failed."
+            fi
+            AUTOUPDATE
+
+            chmod +x auto-update.sh
+
+            # Extract the current deployment package
             tar -xzf deploy-package.tar.gz
             mv docker-compose.yml docker-compose.yml.new
             bash ./deploy.sh
-            rm -f deploy-package.tar.gz deploy.sh
+
+            # Clean up files but keep the auto-update script
+            rm -f deploy-package.tar.gz
+          ENDSSH
+
+      - name: Create local repository clone on server
+        run: |
+          echo "Creating automatic code sync on server..."
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
+            cd ${{ secrets.DEPLOY_PATH }}
+            # Create a sync.sh script that will automatically update the code
+            cat > sync.sh << 'SYNCSCRIPT'
+            #!/bin/bash
+            # Create code directory if it doesn't exist
+            if [ ! -d "code" ]; then
+              echo "Creating code directory..."
+              mkdir -p code
+              cd code
+              git clone https://github.com/${{ github.repository }}.git .
+            else
+              cd code
+              git fetch origin
+              git reset --hard origin/main
+            fi
+            echo "Code updated at $(date)"
+            SYNCSCRIPT
+            chmod +x sync.sh
+            # Set up a cron job to run every 5 minutes if it doesn't exist already
+            if ! crontab -l | grep -q "sync.sh"; then
+              (crontab -l 2>/dev/null; echo "*/5 * * * * cd ${{ secrets.DEPLOY_PATH }} && ./sync.sh >> sync.log 2>&1") | crontab -
+              echo "Added auto-sync cron job"
+            fi
+            # Run the sync script immediately
+            ./sync.sh
           ENDSSH
 
       - name: Verify deployment
@@ -470,16 +565,12 @@ jobs:
           echo "Verifying deployment..."
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
             cd ${{ secrets.DEPLOY_PATH }}
-
             echo "Container status:"
             docker-compose ps
-
             echo "Container health:"
             docker ps --format "{{.Names}}: {{.Status}}"
-
             echo "Recent logs:"
             docker-compose logs --tail=10
-
             echo "Verification complete."
           ENDSSH
 

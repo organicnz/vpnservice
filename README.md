@@ -12,11 +12,34 @@ A modern VPN subscription management system with a Node.js backend and Next.js a
 - 🚀 **Docker Deployment**: Containerized for easy deployment
 - 🔐 **GitHub Secrets Integration**: Secure configuration for public repositories
 
+## Quick Start - Automated Deployment
+
+For the fastest possible setup, we provide an automated deployment process:
+
+1. Go to the [Actions tab](../../actions/workflows/autopull.yml) in this repository
+2. Click on the "Run workflow" button
+3. Select "auto" from the dropdown and click "Run workflow"
+4. Wait for the workflow to complete (usually takes less than a minute)
+5. Download the deployment package from the Artifacts section
+6. Transfer the package to your server
+7. Extract and run the setup script:
+   ```bash
+   tar -xzf vpn-service-deployment.tar.gz
+   chmod +x setup.sh
+   ./setup.sh
+   ```
+8. Follow the on-screen instructions to complete the setup
+
+This method will automatically:
+- Install Docker and Docker Compose if needed
+- Create a default configuration
+- Set up the VPN admin panel and X-UI interface
+- Configure everything for immediate use
+
 ## Architecture
 
 This project consists of several components:
 
-- **Backend API**: Node.js REST API service
 - **Admin Panel**: Next.js web application for administration
 - **Database**: PostgreSQL managed by Supabase
 - **VPN Server**: Integration with OpenVPN/WireGuard
@@ -52,7 +75,6 @@ This project consists of several components:
    ```
 
 5. Access the services:
-   - Backend API: http://localhost:3000/api
    - Admin Panel: http://localhost:8080
    - Supabase Studio: http://localhost:54323
 
@@ -77,36 +99,32 @@ npm install
 npm run dev
 ```
 
-### Backend Development
-
-For backend API development:
-
-```bash
-cd backend
-npm install
-npm run dev
-```
-
 ## Deployment
 
-The application can be deployed using Docker Compose or through the provided GitHub Actions workflow:
+The application can be deployed using one of these methods:
 
-1. Set up your production server with Docker and Docker Compose installed
-2. Configure your GitHub Secrets for secure deployment
-3. Deploy using the GitHub Actions workflow or run `docker-compose -f docker-compose.prod.yml up -d`
+### 1. Automated Deployment (Recommended)
 
-### CI/CD
+Use our automated deployment workflow as described in the Quick Start section.
+
+### 2. Docker Compose
+
+```bash
+docker-compose -f docker-compose.yml up -d
+```
+
+### 3. GitHub Actions CI/CD
 
 The project includes GitHub Actions workflows for continuous integration and deployment:
 
 - `.github/workflows/workflow.yml`: Tests, builds, and deploys the application securely using GitHub Secrets
+- `.github/workflows/autopull.yml`: Creates self-deployable packages for easy setup
 
 ## Project Structure
 
 ```
 .
 ├── admin-panel/           # Next.js admin panel
-├── backend/               # Node.js API server
 ├── .github/               # GitHub Actions workflows
 ├── docker-compose.yml     # Development Docker Compose
 ├── SECURITY.md            # Security documentation

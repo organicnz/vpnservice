@@ -1,12 +1,15 @@
-# Use Node.js 20 as the base image with Alpine for smaller size
-FROM node:20-alpine AS base
+# Use Node.js 20 slim instead of Alpine to avoid package compatibility issues
+FROM node:20-slim AS base
 
 # Install dependencies only when needed
 FROM base AS deps
 WORKDIR /app
 
-# Install essential build tools and increase timeout settings
-RUN apk add --no-cache libc6-compat python3 make g++ git && \
+# Install only essential dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
     npm config set registry https://registry.npmjs.org/ && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
@@ -92,10 +95,10 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1
 
 # Create a non-root user
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs && \
+RUN groupadd --gid 1001 nodejs && \
+    useradd --uid 1001 --gid nodejs --shell /bin/bash --create-home nextjs && \
     mkdir -p /tmp/next && \
-    chmod -R 777 /tmp/next
+    chown -R nextjs:nodejs /tmp/next
 
 # Setup app directories
 RUN mkdir -p public .next/static .next/server && \

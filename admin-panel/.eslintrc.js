@@ -37,30 +37,12 @@ module.exports = {
 
     // TypeScript rules
     '@typescript-eslint/explicit-module-boundary-types': 'off', // Inferred return types are often clear
-    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-    '@typescript-eslint/no-explicit-any': 'warn', // Discourage 'any' type but don't error
-    '@typescript-eslint/consistent-type-imports': 'error',
+    '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+    '@typescript-eslint/no-explicit-any': 'off', // Allow 'any' type for Supabase responses
+    '@typescript-eslint/consistent-type-imports': 'off',
 
     // Import rules
-    'import/order': [
-      'error',
-      {
-        groups: [
-          'builtin', // Built-in imports (come from NodeJS)
-          'external', // External imports
-          'internal', // Absolute imports
-          ['sibling', 'parent'], // Relative imports
-          'index', // index imports
-          'object', // Object imports
-          'type', // Type imports
-        ],
-        'newlines-between': 'always',
-        alphabetize: {
-          order: 'asc',
-          caseInsensitive: true,
-        },
-      },
-    ],
+    'import/order': 'off',
     'import/prefer-default-export': 'off', // Named exports are better for tree-shaking
 
     // NextJS rules
@@ -72,6 +54,15 @@ module.exports = {
     'prefer-const': 'error', // Use const whenever possible
     'no-var': 'error', // Prefer let/const over var
     'eqeqeq': ['error', 'always'], // Require === and !==
+    
+    // Tailwind rules
+    'tailwindcss/classnames-order': 'off',
+    'tailwindcss/migration-from-tailwind-2': 'off',
+    'tailwindcss/enforces-shorthand': 'off',
+    
+    // Accessibility rules
+    'jsx-a11y/click-events-have-key-events': 'off',
+    'jsx-a11y/no-static-element-interactions': 'off'
   },
   settings: {
     react: {

@@ -741,10 +741,12 @@ jobs:
 
       - name: Deploy Supabase functions if needed
         if: needs.check-environment.outputs.can_deploy_supabase == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           echo "Deploying Supabase Edge Functions..."
           cd supabase
-          supabase login --token ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          supabase login --token "$SUPABASE_ACCESS_TOKEN"
           supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} || echo "Supabase deployment failed but continuing with server deployment"
         continue-on-error: true
 

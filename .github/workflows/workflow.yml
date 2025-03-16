@@ -744,7 +744,7 @@ jobs:
         run: |
           echo "Deploying Supabase Edge Functions..."
           cd supabase
-          supabase login --access-token ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          supabase login --token ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} || echo "Supabase deployment failed but continuing with server deployment"
         continue-on-error: true
 

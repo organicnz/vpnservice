@@ -14,21 +14,20 @@ x-healthcheck: &default-healthcheck
   start_period: 20s
 
 services:
-  # 3x-ui VPN Panel
+  # 3x-ui VPN Panel - using a different, more reliable image
   xui:
-    image: ghcr.io/mhsanaei/3x-ui:v3.0.0
+    image: enwaiax/x-ui:latest
     container_name: xray-ui
     restart: unless-stopped
     ports:
-      - 54321:2053 # Panel port (external:internal)
-      - 443:443     # HTTPS port (for Xray services)
-      - 80:80       # HTTP port (for certbot)
+      - 9001:54321 # Panel port (external:internal) - changed to avoid conflict
+      - 9443:443   # HTTPS port (for Xray services) - changed to avoid conflict
+      - 9080:80    # HTTP port (for certbot) - changed to avoid conflict
     environment:
       - TZ=${TIMEZONE:-Europe/Moscow}
       - XRAY_VMESS_AEAD_FORCED=${XRAY_VMESS_AEAD_FORCED:-false}
       - XUI_USERNAME=${XUI_USERNAME:-admin}
       - XUI_PASSWORD=${XUI_PASSWORD:-admin}
-      - SECURITY_PANEL_ENFORCE_HTTPS=false
     volumes:
       - xui_db_data:/etc/x-ui/:rw
       - xui_cert_data:/root/cert/:ro
@@ -36,7 +35,7 @@ services:
       - vpn-network
     healthcheck:
       <<: *default-healthcheck
-      test: [CMD, wget, -qO-, http://localhost:2053/]
+      test: [CMD, wget, -qO-, http://localhost:54321/]
     logging: *default-logging
     # Security and resource limits
     deploy:
@@ -62,12 +61,11 @@ services:
     container_name: vpn-admin
     restart: unless-stopped
     depends_on:
-      xui:
-        condition: service_healthy
+      - xui
     environment:
       - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
-      - XUI_PANEL_URL=http://xui:2053
+      - XUI_PANEL_URL=http://xui:54321
       - XUI_USERNAME=${XUI_USERNAME:-admin}
       - XUI_PASSWORD=${XUI_PASSWORD:-admin}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
@@ -75,7 +73,7 @@ services:
       - NODE_ENV=production
       - NODE_OPTIONS=--max-old-space-size=512
     ports:
-      - 8080:3000  # Map container's 3000 port to host's 8080
+      - 9002:3000  # Map container's 3000 port to host's 9002 - changed to avoid conflict
     networks:
       - vpn-network
     logging: *default-logging

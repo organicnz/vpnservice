@@ -11,6 +11,7 @@ A modern VPN subscription management system with a Node.js backend and Next.js a
 - 🤖 **Telegram Bot**: Customer support and account management via Telegram
 - 🚀 **Docker Deployment**: Containerized for easy deployment
 - 🔐 **GitHub Secrets Integration**: Secure configuration for public repositories
+- 🔄 **Auto-Update System**: Automatic deployment and source code updates
 
 ## Quick Start - Automated Deployment
 

@@ -10,7 +10,7 @@ ENV NODE_ENV=production \
     PATH=/app/node_modules/.bin:$PATH
 
 # Create a minimal skeleton app first
-RUN mkdir -p app public styles components
+RUN mkdir -p app/components public styles
 
 # Create a minimal package.json with more dependencies
 RUN echo '{' > package.json && \
@@ -18,6 +18,7 @@ RUN echo '{' > package.json && \
     echo '  "version": "1.0.0",' >> package.json && \
     echo '  "private": true,' >> package.json && \
     echo '  "scripts": {' >> package.json && \
+    echo '    "dev": "next dev",' >> package.json && \
     echo '    "build": "next build",' >> package.json && \
     echo '    "start": "next start"' >> package.json && \
     echo '  },' >> package.json && \
@@ -31,18 +32,50 @@ RUN echo '{' > package.json && \
     echo '  }' >> package.json && \
     echo '}' >> package.json
 
-# Create a minimal next.config.js
+# Create a minimal next.config.js with static export for reliability
 RUN echo 'module.exports = {' > next.config.js && \
     echo '  output: "standalone",' >> next.config.js && \
     echo '  typescript: { ignoreBuildErrors: true },' >> next.config.js && \
     echo '  eslint: { ignoreDuringBuilds: true },' >> next.config.js && \
-    echo '  images: { unoptimized: true }' >> next.config.js && \
+    echo '  images: { unoptimized: true },' >> next.config.js && \
+    echo '  assetPrefix: "",' >> next.config.js && \
+    echo '  basePath: "",' >> next.config.js && \
+    echo '  trailingSlash: true,' >> next.config.js && \
+    echo '  poweredByHeader: false' >> next.config.js && \
     echo '};' >> next.config.js
+
+# Create a simple Button component for reuse
+RUN mkdir -p app/components && \
+    echo '"use client";' > app/components/Button.jsx && \
+    echo '' >> app/components/Button.jsx && \
+    echo 'export default function Button({ children, onClick, loading = false, type = "button" }) {' >> app/components/Button.jsx && \
+    echo '  return (' >> app/components/Button.jsx && \
+    echo '    <button' >> app/components/Button.jsx && \
+    echo '      type={type}' >> app/components/Button.jsx && \
+    echo '      onClick={onClick}' >> app/components/Button.jsx && \
+    echo '      disabled={loading}' >> app/components/Button.jsx && \
+    echo '      className={`bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded flex items-center justify-center ${loading ? "opacity-70 cursor-not-allowed" : ""}`}' >> app/components/Button.jsx && \
+    echo '    >' >> app/components/Button.jsx && \
+    echo '      {loading ? (' >> app/components/Button.jsx && \
+    echo '        <>' >> app/components/Button.jsx && \
+    echo '          <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">' >> app/components/Button.jsx && \
+    echo '            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>' >> app/components/Button.jsx && \
+    echo '            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>' >> app/components/Button.jsx && \
+    echo '          </svg>' >> app/components/Button.jsx && \
+    echo '          Processing...' >> app/components/Button.jsx && \
+    echo '        </>' >> app/components/Button.jsx && \
+    echo '      ) : (' >> app/components/Button.jsx && \
+    echo '        children' >> app/components/Button.jsx && \
+    echo '      )}' >> app/components/Button.jsx && \
+    echo '    </button>' >> app/components/Button.jsx && \
+    echo '  );' >> app/components/Button.jsx && \
+    echo '}' >> app/components/Button.jsx
 
 # Create a better home page with a working login button
 RUN echo '"use client";' > app/page.jsx && \
     echo '' >> app/page.jsx && \
     echo 'import { useState } from "react";' >> app/page.jsx && \
+    echo 'import Button from "./components/Button";' >> app/page.jsx && \
     echo '' >> app/page.jsx && \
     echo 'export default function Page() {' >> app/page.jsx && \
     echo '  const [loading, setLoading] = useState(false);' >> app/page.jsx && \
@@ -56,7 +89,7 @@ RUN echo '"use client";' > app/page.jsx && \
     echo '    setTimeout(() => {' >> app/page.jsx && \
     echo '      setLoading(false);' >> app/page.jsx && \
     echo '      // For now, just show a success alert' >> app/page.jsx && \
-    echo '      alert("Login successful");' >> app/page.jsx && \
+    echo '      alert("Login successful!");' >> app/page.jsx && \
     echo '      // In a real app, you would redirect to a dashboard or validate credentials' >> app/page.jsx && \
     echo '    }, 1000);' >> app/page.jsx && \
     echo '  };' >> app/page.jsx && \
@@ -68,23 +101,7 @@ RUN echo '"use client";' > app/page.jsx && \
     echo '        <p className="text-gray-600 mb-4 text-center">Welcome to the VPN Service administration panel.</p>' >> app/page.jsx && \
     echo '        {error && <p className="text-red-500 text-center mb-4">{error}</p>}' >> app/page.jsx && \
     echo '        <div className="flex justify-center">' >> app/page.jsx && \
-    echo '          <button' >> app/page.jsx && \
-    echo '            onClick={handleLogin}' >> app/page.jsx && \
-    echo '            disabled={loading}' >> app/page.jsx && \
-    echo '            className={`bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded flex items-center ${loading ? "opacity-70 cursor-not-allowed" : ""}`}' >> app/page.jsx && \
-    echo '          >' >> app/page.jsx && \
-    echo '            {loading ? (' >> app/page.jsx && \
-    echo '              <>' >> app/page.jsx && \
-    echo '                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">' >> app/page.jsx && \
-    echo '                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>' >> app/page.jsx && \
-    echo '                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>' >> app/page.jsx && \
-    echo '                </svg>' >> app/page.jsx && \
-    echo '                Processing...' >> app/page.jsx && \
-    echo '              </>' >> app/page.jsx && \
-    echo '            ) : (' >> app/page.jsx && \
-    echo '              "Login"' >> app/page.jsx && \
-    echo '            )}' >> app/page.jsx && \
-    echo '          </button>' >> app/page.jsx && \
+    echo '          <Button onClick={handleLogin} loading={loading}>Login</Button>' >> app/page.jsx && \
     echo '        </div>' >> app/page.jsx && \
     echo '        <div className="mt-6 border-t pt-4">' >> app/page.jsx && \
     echo '          <p className="text-sm text-gray-500 text-center">© 2023 VPN Service. All rights reserved.</p>' >> app/page.jsx && \
@@ -94,26 +111,45 @@ RUN echo '"use client";' > app/page.jsx && \
     echo '  );' >> app/page.jsx && \
     echo '}' >> app/page.jsx
 
-# Create a proper layout file with Tailwind
+# Create a proper layout file with Tailwind and proper metadata
 RUN echo 'import "./globals.css";' > app/layout.jsx && \
     echo '' >> app/layout.jsx && \
     echo 'export const metadata = {' >> app/layout.jsx && \
     echo '  title: "VPN Admin Panel",' >> app/layout.jsx && \
     echo '  description: "Administration panel for VPN service",' >> app/layout.jsx && \
+    echo '  icons: {' >> app/layout.jsx && \
+    echo '    icon: "/favicon.ico"' >> app/layout.jsx && \
+    echo '  }' >> app/layout.jsx && \
     echo '};' >> app/layout.jsx && \
     echo '' >> app/layout.jsx && \
     echo 'export default function RootLayout({ children }) {' >> app/layout.jsx && \
     echo '  return (' >> app/layout.jsx && \
     echo '    <html lang="en">' >> app/layout.jsx && \
+    echo '      <head>' >> app/layout.jsx && \
+    echo '        <meta charSet="utf-8" />' >> app/layout.jsx && \
+    echo '        <meta name="viewport" content="width=device-width, initial-scale=1.0" />' >> app/layout.jsx && \
+    echo '      </head>' >> app/layout.jsx && \
     echo '      <body className="min-h-screen bg-gray-50">{children}</body>' >> app/layout.jsx && \
     echo '    </html>' >> app/layout.jsx && \
     echo '  );' >> app/layout.jsx && \
     echo '}' >> app/layout.jsx
 
+# Create a basic favicon
+RUN echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="32" height="32">' > public/favicon.svg && \
+    echo '  <rect width="100" height="100" rx="20" fill="#3b82f6" />' >> public/favicon.svg && \
+    echo '  <path d="M30 40 L70 40 L50 70 Z" fill="white" />' >> public/favicon.svg && \
+    echo '</svg>' >> public/favicon.svg
+
 # Create globals.css with Tailwind directives
 RUN echo '@tailwind base;' > app/globals.css && \
     echo '@tailwind components;' >> app/globals.css && \
-    echo '@tailwind utilities;' >> app/globals.css
+    echo '@tailwind utilities;' >> app/globals.css && \
+    echo '' >> app/globals.css && \
+    echo 'html, body {' >> app/globals.css && \
+    echo '  height: 100%;' >> app/globals.css && \
+    echo '  margin: 0;' >> app/globals.css && \
+    echo '  padding: 0;' >> app/globals.css && \
+    echo '}' >> app/globals.css
 
 # Create tailwind.config.js
 RUN echo 'module.exports = {' > tailwind.config.js && \
@@ -135,7 +171,7 @@ RUN echo 'module.exports = {' > postcss.config.js && \
     echo '  },' >> postcss.config.js && \
     echo '};' >> postcss.config.js
 
-# Create a better fallback HTML
+# Create a better fallback HTML with inline styles to avoid 404s
 RUN echo '<!DOCTYPE html>' > public/index.html && \
     echo '<html lang="en">' >> public/index.html && \
     echo '<head>' >> public/index.html && \
@@ -161,7 +197,7 @@ RUN echo '<!DOCTYPE html>' > public/index.html && \
     echo '      button.textContent = "Processing...";' >> public/index.html && \
     echo '      spinner.style.display = "block";' >> public/index.html && \
     echo '      setTimeout(() => {' >> public/index.html && \
-    echo '        alert("Login successful");' >> public/index.html && \
+    echo '        alert("Login successful!");' >> public/index.html && \
     echo '        button.disabled = false;' >> public/index.html && \
     echo '        button.textContent = "Login";' >> public/index.html && \
     echo '        spinner.style.display = "none";' >> public/index.html && \
@@ -186,23 +222,72 @@ RUN echo '<!DOCTYPE html>' > public/index.html && \
 # Install dependencies
 RUN npm install --no-fund --no-audit --loglevel=error || echo "Warning: Some dependencies may not have installed correctly"
 
-# Create a better server.js that can work without Next.js if needed
+# Create a better server.js that properly handles static files
 RUN echo 'const http = require("http");' > server.js && \
     echo 'const fs = require("fs");' >> server.js && \
     echo 'const path = require("path");' >> server.js && \
     echo 'const PORT = process.env.PORT || 3000;' >> server.js && \
+    echo '' >> server.js && \
+    echo '// MIME types for serving static files' >> server.js && \
+    echo 'const MIME_TYPES = {' >> server.js && \
+    echo '  ".html": "text/html",' >> server.js && \
+    echo '  ".css": "text/css",' >> server.js && \
+    echo '  ".js": "text/javascript",' >> server.js && \
+    echo '  ".json": "application/json",' >> server.js && \
+    echo '  ".svg": "image/svg+xml",' >> server.js && \
+    echo '  ".ico": "image/x-icon",' >> server.js && \
+    echo '};' >> server.js && \
+    echo '' >> server.js && \
+    echo 'function serveStaticFile(req, res) {' >> server.js && \
+    echo '  let filePath = path.join(__dirname, "public", req.url === "/" ? "index.html" : req.url);' >> server.js && \
+    echo '  ' >> server.js && \
+    echo '  if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {' >> server.js && \
+    echo '    filePath = path.join(filePath, "index.html");' >> server.js && \
+    echo '  }' >> server.js && \
+    echo '' >> server.js && \
+    echo '  const extname = String(path.extname(filePath)).toLowerCase();' >> server.js && \
+    echo '  const contentType = MIME_TYPES[extname] || "application/octet-stream";' >> server.js && \
+    echo '' >> server.js && \
+    echo '  try {' >> server.js && \
+    echo '    if (fs.existsSync(filePath)) {' >> server.js && \
+    echo '      const content = fs.readFileSync(filePath);' >> server.js && \
+    echo '      res.writeHead(200, { "Content-Type": contentType });' >> server.js && \
+    echo '      res.end(content);' >> server.js && \
+    echo '      return true;' >> server.js && \
+    echo '    }' >> server.js && \
+    echo '  } catch (e) {' >> server.js && \
+    echo '    console.error("Error serving static file:", e);' >> server.js && \
+    echo '  }' >> server.js && \
+    echo '  return false;' >> server.js && \
+    echo '}' >> server.js && \
+    echo '' >> server.js && \
     echo 'let nextApp;' >> server.js && \
     echo 'try {' >> server.js && \
-    echo '  nextApp = require("./.next/standalone/server.js");' >> server.js && \
-    echo '  console.log("Next.js server loaded successfully!");' >> server.js && \
+    echo '  // Try to load the Next.js app' >> server.js && \
+    echo '  const nextServerPath = "./.next/standalone/server.js";' >> server.js && \
+    echo '  if (fs.existsSync(nextServerPath)) {' >> server.js && \
+    echo '    nextApp = require(nextServerPath);' >> server.js && \
+    echo '    console.log("Next.js server loaded successfully!");' >> server.js && \
+    echo '  } else {' >> server.js && \
+    echo '    throw new Error("Next.js server file not found");' >> server.js && \
+    echo '  }' >> server.js && \
     echo '} catch (e) {' >> server.js && \
     echo '  console.log("Could not load Next.js app:", e.message);' >> server.js && \
     echo '  console.log("Starting fallback server...");' >> server.js && \
+    echo '  ' >> server.js && \
+    echo '  // Create a simple fallback server' >> server.js && \
     echo '  const server = http.createServer((req, res) => {' >> server.js && \
+    echo '    // Try to serve a static file' >> server.js && \
+    echo '    if (serveStaticFile(req, res)) {' >> server.js && \
+    echo '      return;' >> server.js && \
+    echo '    }' >> server.js && \
+    echo '' >> server.js && \
+    echo '    // Default to serving index.html' >> server.js && \
     echo '    res.writeHead(200, { "Content-Type": "text/html" });' >> server.js && \
     echo '    const fallback = fs.readFileSync(path.join(__dirname, "public/index.html"));' >> server.js && \
     echo '    res.end(fallback);' >> server.js && \
     echo '  });' >> server.js && \
+    echo '' >> server.js && \
     echo '  server.listen(PORT, () => {' >> server.js && \
     echo '    console.log(`Fallback server running on port ${PORT}`);' >> server.js && \
     echo '  });' >> server.js && \
@@ -210,6 +295,12 @@ RUN echo 'const http = require("http");' > server.js && \
 
 # Build the Next.js application
 RUN npm run build || echo "Next.js build failed, will use fallback server"
+
+# Copy .next/static to public/_next/static for fallback access
+RUN mkdir -p public/_next && \
+    if [ -d .next/static ]; then \
+      cp -R .next/static public/_next/; \
+    fi
 
 # Create a non-root user
 RUN groupadd --gid 1001 nodejs && \

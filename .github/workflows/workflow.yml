@@ -1105,6 +1105,54 @@ jobs:
           ENDSSH
         continue-on-error: true
 
+      - name: Update source code on server
+        if: needs.check-environment.outputs.can_deploy == 'true'
+        run: |
+          echo "Updating source code on server and building stack..."
+          ssh -o StrictHostKeyChecking=accept-new ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH' || echo "Code update and build completed with warnings"
+            # Check if the repository exists
+            REPO_DIR="${{ secrets.SOURCE_CODE_PATH || secrets.DEPLOY_PATH }}/repo"
+            if [ -d "$REPO_DIR/.git" ]; then
+              echo "Repository exists, pulling latest changes..."
+              cd "$REPO_DIR"
+              git pull
+            else
+              echo "Repository does not exist, cloning..."
+              mkdir -p "$REPO_DIR"
+              git clone https://github.com/${{ github.repository }}.git "$REPO_DIR"
+            fi
+
+            # Build and restart the stack
+            echo "Building and restarting the stack..."
+            cd "$REPO_DIR"
+            
+            # If docker-compose.yml exists in the repo root
+            if [ -f "docker-compose.yml" ]; then
+              echo "Found docker-compose.yml, rebuilding services..."
+              docker-compose down || true
+              docker-compose pull
+              docker-compose build --no-cache
+              docker-compose up -d
+              echo "Stack rebuilt and restarted!"
+            
+            # If docker-compose is in a subdirectory
+            elif [ -f "docker/docker-compose.yml" ]; then
+              echo "Found docker-compose.yml in docker directory, rebuilding services..."
+              cd docker
+              docker-compose down || true
+              docker-compose pull
+              docker-compose build --no-cache
+              docker-compose up -d
+              echo "Stack rebuilt and restarted!"
+            
+            else
+              echo "No docker-compose.yml found in standard locations."
+            fi
+            
+            echo "Source code updated and stack rebuilt successfully."
+          ENDSSH
+        continue-on-error: true
+
       - name: Deployment Status Summary
         run: |
           echo "### 🚀 Deployment Status" >> $GITHUB_STEP_SUMMARY

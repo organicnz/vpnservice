@@ -25,11 +25,104 @@ env:
   IMAGE_NAME: ${{ github.repository }}/admin
 
 jobs:
+  # Pre-check deployment environment
+  check-environment:
+    name: Check Deployment Environment
+    runs-on: ubuntu-latest
+    # Only run on main branch or manual workflow triggers
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch'
+    outputs:
+      environment_ready: ${{ steps.environment_check.outputs.environment_ready }}
+      can_deploy: ${{ steps.check_secrets.outputs.can_deploy }}
+      can_deploy_supabase: ${{ steps.check_secrets.outputs.can_deploy_supabase }}
+    steps:
+      - name: Check for required secrets
+        id: check_secrets
+        run: |
+          missing_secrets=()
+
+          # Check essential SSH secrets
+          [[ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]] && missing_secrets+=("SSH_PRIVATE_KEY")
+          [[ -z "${{ secrets.SERVER_HOST }}" ]] && missing_secrets+=("SERVER_HOST")
+          [[ -z "${{ secrets.SERVER_USER }}" ]] && missing_secrets+=("SERVER_USER")
+          [[ -z "${{ secrets.DEPLOY_PATH }}" ]] && missing_secrets+=("DEPLOY_PATH")
+
+          # Report missing secrets
+          if [[ ${#missing_secrets[@]} -gt 0 ]]; then
+            echo "::warning::Missing required secrets for deployment: ${missing_secrets[*]}"
+            echo "::notice::Skipping environment check. Please configure the required secrets in repository settings."
+            echo "environment_ready=false" >> $GITHUB_OUTPUT
+            echo "can_deploy=false" >> $GITHUB_OUTPUT
+          else
+            echo "environment_ready=true" >> $GITHUB_OUTPUT
+            echo "can_deploy=true" >> $GITHUB_OUTPUT
+          fi
+          
+          # Check Supabase secrets separately
+          if [[ -z "${{ secrets.SUPABASE_ACCESS_TOKEN }}" ]] || [[ -z "${{ secrets.SUPABASE_PROJECT_REF }}" ]]; then
+            echo "::warning::Missing Supabase secrets, will skip Supabase deployment."
+            echo "can_deploy_supabase=false" >> $GITHUB_OUTPUT
+          else
+            echo "can_deploy_supabase=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up SSH
+        if: steps.check_secrets.outputs.can_deploy == 'true'
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add known hosts
+        if: steps.check_secrets.outputs.can_deploy == 'true'
+        run: |
+          mkdir -p ~/.ssh
+          echo "Adding ${{ secrets.SERVER_HOST }} to known hosts..."
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || echo "Could not add host to known_hosts"
+          chmod 644 ~/.ssh/known_hosts
+        continue-on-error: true
+
+      - name: Test SSH connection and verify deployment directory
+        id: environment_check
+        if: steps.check_secrets.outputs.can_deploy == 'true'
+        run: |
+          echo "Testing SSH connection..."
+          if ! ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'SSH connection successful'"; then
+            echo "::error::SSH connection failed. Please check your SSH_PRIVATE_KEY, SERVER_HOST, and SERVER_USER secrets."
+            echo "environment_ready=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Checking if deployment directory exists..."
+          if ! ssh -o StrictHostKeyChecking=accept-new ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "[ -d \"${{ secrets.DEPLOY_PATH }}\" ] && echo 'Directory exists' || echo 'Directory does not exist'"; then
+            echo "::warning::Deployment directory ${{ secrets.DEPLOY_PATH }} does not exist or is not accessible."
+            echo "Attempting to create deployment directory..."
+            if ! ssh -o StrictHostKeyChecking=accept-new ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "mkdir -p \"${{ secrets.DEPLOY_PATH }}\""; then
+              echo "::error::Failed to create deployment directory. Please check permissions."
+              echo "environment_ready=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "Deployment directory created successfully."
+          fi
+
+          echo "Checking disk space in deployment directory..."
+          ssh -o StrictHostKeyChecking=accept-new ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "df -h \"${{ secrets.DEPLOY_PATH }}\" || df -h /"
+          
+          echo "Checking Docker availability on server..."
+          if ! ssh -o StrictHostKeyChecking=accept-new ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "command -v docker && command -v docker-compose"; then
+            echo "::warning::Docker or Docker Compose not found on server. Deployment may fail."
+          else
+            echo "Docker and Docker Compose found on server."
+          fi
+
+          echo "::notice::Environment check passed. SSH connection successful and deployment directory verified."
+          echo "environment_ready=true" >> $GITHUB_OUTPUT
+
   # Self-deployment package creation - moved to top priority
   create-deployment-package:
     name: Create Self-Deployment Package
     runs-on: ubuntu-latest
-    # Removed dependency on build-admin
     # Only create on main branch or manual workflow triggers
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -495,11 +588,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: ./admin-panel/package-lock.json
-      
+
       - name: Install dependencies
         working-directory: ./admin-panel
         run: npm ci || npm install
-      
+
       - name: Verify Next.js build
         working-directory: ./admin-panel
         run: |
@@ -508,19 +601,19 @@ jobs:
           export NEXT_PUBLIC_SUPABASE_URL="${{ secrets.SUPABASE_URL || 'https://dummy-value-for-build.supabase.co' }}"
           export NEXT_PUBLIC_SUPABASE_ANON_KEY="${{ secrets.SUPABASE_KEY || 'dummy-key-for-build-only' }}"
           export NEXT_PUBLIC_API_URL="/api"
-          
+
           # Ensure temp directories exist
           mkdir -p .next/static .next/cache .next/server .next/standalone
-          
+
           # Create a minimal app if one doesn't exist for test build
           if [ ! -d "app" ]; then
             mkdir -p app
             echo 'export default function Page() { return <div><h1>Admin Panel</h1></div>; }' > app/page.tsx
           fi
-          
+
           npm run build || echo "Warning: Direct build failed, but will try in Docker"
         continue-on-error: true
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -608,11 +701,12 @@ jobs:
   # Deploy to production - simplified to run on main branch push regardless of other jobs
   deploy:
     name: Deploy to Production
-    needs: [build-admin]
-    # Only deploy on main branch pushes or manual workflow triggers
+    needs: [build-admin, check-environment]
+    # Only deploy on main branch pushes or manual workflow triggers and if environment check passed
     if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      github.event_name == 'workflow_dispatch'
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch') &&
+      needs.check-environment.outputs.environment_ready == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
@@ -622,45 +716,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Check if required secrets are available before proceeding
-      - name: Check deployment prerequisites
-        id: check_secrets
-        run: |
-          missing_secrets=()
-          
-          # Check essential SSH secrets
-          [[ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]] && missing_secrets+=("SSH_PRIVATE_KEY")
-          [[ -z "${{ secrets.SERVER_HOST }}" ]] && missing_secrets+=("SERVER_HOST")
-          [[ -z "${{ secrets.SERVER_USER }}" ]] && missing_secrets+=("SERVER_USER")
-          [[ -z "${{ secrets.DEPLOY_PATH }}" ]] && missing_secrets+=("DEPLOY_PATH")
-          
-          # Report missing secrets
-          if [[ ${#missing_secrets[@]} -gt 0 ]]; then
-            echo "::warning::Missing required secrets for deployment: ${missing_secrets[*]}"
-            echo "::notice::Skipping deployment. Please configure the required secrets in repository settings."
-            echo "can_deploy=false" >> $GITHUB_OUTPUT
-          else
-            echo "can_deploy=true" >> $GITHUB_OUTPUT
-          fi
-          
-          # Check optional Supabase secrets
-          if [[ -z "${{ secrets.SUPABASE_ACCESS_TOKEN }}" ]] || [[ -z "${{ secrets.SUPABASE_PROJECT_REF }}" ]]; then
-            echo "::warning::Supabase deployment secrets missing. Skipping Supabase deployment."
-            echo "can_deploy_supabase=false" >> $GITHUB_OUTPUT
-          else
-            echo "can_deploy_supabase=true" >> $GITHUB_OUTPUT
-          fi
-
-      # Deploy Supabase functions if needed
-      - name: Setup Supabase CLI
-        if: steps.check_secrets.outputs.can_deploy_supabase == 'true'
-        uses: supabase/setup-cli@v1
+      # We don't need to check prerequisites again since we already did that in check-environment
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          version: latest
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add known hosts
+        run: |
+          mkdir -p ~/.ssh
+          echo "Adding ${{ secrets.SERVER_HOST }} to known hosts..."
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || echo "Could not add host to known_hosts"
+          chmod 644 ~/.ssh/known_hosts
         continue-on-error: true
-        
-      - name: Deploy Supabase Edge Functions
-        if: steps.check_secrets.outputs.can_deploy_supabase == 'true'
+
+      - name: Deploy Supabase functions if needed
+        if: needs.check-environment.outputs.can_deploy_supabase == 'true'
         run: |
           echo "Deploying Supabase Edge Functions..."
           cd supabase
@@ -670,7 +741,7 @@ jobs:
 
       # Skip all deployment steps if secrets are missing
       - name: Create deployment configuration
-        if: steps.check_secrets.outputs.can_deploy == 'true'
+        if: needs.check-environment.outputs.can_deploy == 'true'
         run: |
           mkdir -p deploy-package
           # Create docker-compose.yml for deployment
@@ -838,24 +909,8 @@ jobs:
           # Create package
           tar -czf deploy-package.tar.gz -C deploy-package .
 
-      - name: Setup SSH
-        if: steps.check_secrets.outputs.can_deploy == 'true'
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-        continue-on-error: true
-
-      - name: Configure SSH known hosts
-        if: steps.check_secrets.outputs.can_deploy == 'true'
-        run: |
-          mkdir -p ~/.ssh
-          echo "Adding ${{ secrets.SERVER_HOST }} to known hosts..."
-          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || echo "Could not add host to known_hosts"
-          chmod 644 ~/.ssh/known_hosts
-        continue-on-error: true
-
       - name: Deploy to production server
-        if: steps.check_secrets.outputs.can_deploy == 'true'
+        if: needs.check-environment.outputs.can_deploy == 'true'
         run: |
           echo "Testing SSH connection..."
           if ! ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'SSH connection successful'"; then
@@ -889,36 +944,36 @@ jobs:
               LOG_FILE="./auto-update.log"
               TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
               DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
-              
+
               echo "$TIMESTAMP - Starting auto-update process" >> "$LOG_FILE"
-              
+
               # Create a directory to store temporary files
               TEMP_DIR="./tmp_update"
               mkdir -p "$TEMP_DIR"
-              
+
               # Download the latest deployment package from GitHub
               echo "$TIMESTAMP - Downloading latest deployment package" >> "$LOG_FILE"
               ARTIFACT_URL="https://api.github.com/repos/${{ github.repository }}/actions/artifacts"
-              
+
               # Get the latest artifact URL
               LATEST_ARTIFACT=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN || 'ghp_placeholder' }}" "$ARTIFACT_URL" | grep -o '"archive_download_url": "[^"]*"' | head -1 | cut -d'"' -f4)
-              
+
               if [ -z "$LATEST_ARTIFACT" ]; then
                 echo "$TIMESTAMP - Failed to find latest artifact. Using current deployment." >> "$LOG_FILE"
               else
                 echo "$TIMESTAMP - Found latest artifact: $LATEST_ARTIFACT" >> "$LOG_FILE"
-                
+
                 # Download the artifact
                 if curl -s -L -o "$TEMP_DIR/latest.zip" -H "Authorization: token ${{ secrets.GITHUB_TOKEN || 'ghp_placeholder' }}" "$LATEST_ARTIFACT"; then
                   echo "$TIMESTAMP - Download successful, extracting..." >> "$LOG_FILE"
-                  
+
                   # Extract the deployment package
                   unzip -q -o "$TEMP_DIR/latest.zip" -d "$TEMP_DIR" || {
                     echo "$TIMESTAMP - Failed to extract package" >> "$LOG_FILE"
                     rm -rf "$TEMP_DIR"
                     exit 1
                   }
-                  
+
                   # Check if deployment package exists
                   if [ -f "$TEMP_DIR/vpn-service-deployment.tar.gz" ]; then
                     echo "$TIMESTAMP - Deployment package found, extracting..." >> "$LOG_FILE"
@@ -927,7 +982,7 @@ jobs:
                       rm -rf "$TEMP_DIR"
                       exit 1
                     }
-                    
+
                     # Compare the extracted docker-compose with current one
                     DIFF_OUTPUT=""
                     if [ -f "$DEPLOY_PATH/docker-compose.yml" ] && [ -f "$TEMP_DIR/docker-compose.yml" ]; then
@@ -936,54 +991,54 @@ jobs:
                       # Force update if one of the files doesn't exist
                       DIFF_OUTPUT="force_update"
                     fi
-                    
+
                     if [ -n "$DIFF_OUTPUT" ]; then
                       echo "$TIMESTAMP - Changes detected in configuration. Updating services..." >> "$LOG_FILE"
-                      
+
                       # Backup current files
                       BACKUP_DIR="$DEPLOY_PATH/backups/$(date +%Y%m%d_%H%M%S)"
                       mkdir -p "$BACKUP_DIR"
                       cp -f "$DEPLOY_PATH/docker-compose.yml" "$BACKUP_DIR/" 2>/dev/null || true
                       cp -f "$DEPLOY_PATH/.env" "$BACKUP_DIR/" 2>/dev/null || true
-                      
+
                       # Copy new files
                       cp -f "$TEMP_DIR/docker-compose.yml" "$DEPLOY_PATH/" || {
                         echo "$TIMESTAMP - Failed to copy docker-compose.yml" >> "$LOG_FILE"
                       }
-                      
+
                       # Preserve .env file or create a new one if it doesn't exist
                       if [ ! -f "$DEPLOY_PATH/.env" ] && [ -f "$TEMP_DIR/.env" ]; then
                         cp -f "$TEMP_DIR/.env" "$DEPLOY_PATH/" || {
                           echo "$TIMESTAMP - Failed to copy .env" >> "$LOG_FILE"
                         }
                       fi
-                      
+
                       # Execute docker-compose commands to update services
                       cd "$DEPLOY_PATH" || {
                         echo "$TIMESTAMP - Failed to change to deploy path" >> "$LOG_FILE"
                         rm -rf "$TEMP_DIR"
                         exit 1
                       }
-                      
+
                       echo "$TIMESTAMP - Stopping services..." >> "$LOG_FILE"
                       docker-compose down --remove-orphans >> "$LOG_FILE" 2>&1 || echo "$TIMESTAMP - Warning: docker-compose down failed" >> "$LOG_FILE"
-                      
+
                       echo "$TIMESTAMP - Pulling latest images..." >> "$LOG_FILE"
                       docker-compose pull >> "$LOG_FILE" 2>&1 || echo "$TIMESTAMP - Warning: docker-compose pull failed" >> "$LOG_FILE"
-                      
+
                       echo "$TIMESTAMP - Starting services..." >> "$LOG_FILE"
                       docker-compose up -d >> "$LOG_FILE" 2>&1 || {
                         echo "$TIMESTAMP - Failed to start services. Reverting to backup..." >> "$LOG_FILE"
                         cp -f "$BACKUP_DIR/docker-compose.yml" "$DEPLOY_PATH/" 2>/dev/null || true
                         docker-compose up -d >> "$LOG_FILE" 2>&1 || echo "$TIMESTAMP - Revert also failed!" >> "$LOG_FILE"
                       }
-                      
+
                       echo "$TIMESTAMP - Cleaning up..." >> "$LOG_FILE"
                       docker system prune -f >> "$LOG_FILE" 2>&1 || true
-                      
+
                       # Clean up old backups (keep last 5)
                       ls -1d "$DEPLOY_PATH/backups"/* 2>/dev/null | sort -r | tail -n +6 | xargs rm -rf 2>/dev/null || true
-                      
+
                       echo "$TIMESTAMP - Update completed successfully" >> "$LOG_FILE"
                     else
                       echo "$TIMESTAMP - No changes detected in configuration. Skipping update." >> "$LOG_FILE"
@@ -995,7 +1050,7 @@ jobs:
                   echo "$TIMESTAMP - Failed to download latest artifact" >> "$LOG_FILE"
                 fi
               fi
-              
+
               # Clean up
               rm -rf "$TEMP_DIR"
               echo "$TIMESTAMP - Auto-update process completed" >> "$LOG_FILE"
@@ -1024,7 +1079,7 @@ jobs:
         continue-on-error: true
 
       - name: Verify deployment
-        if: steps.check_secrets.outputs.can_deploy == 'true'
+        if: needs.check-environment.outputs.can_deploy == 'true'
         run: |
           echo "Verifying deployment..."
           ssh -o StrictHostKeyChecking=accept-new ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH' || echo "Verification completed with warnings"
@@ -1042,8 +1097,8 @@ jobs:
       - name: Deployment Status Summary
         run: |
           echo "### 🚀 Deployment Status" >> $GITHUB_STEP_SUMMARY
-          
-          if [[ "${{ steps.check_secrets.outputs.can_deploy }}" == "true" ]]; then
+
+          if [[ "${{ needs.check-environment.outputs.can_deploy }}" == "true" ]]; then
             echo "✅ Deployment configuration prepared" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ Deployment skipped - missing required secrets" >> $GITHUB_STEP_SUMMARY
@@ -1053,13 +1108,13 @@ jobs:
             echo "- SERVER_USER" >> $GITHUB_STEP_SUMMARY
             echo "- DEPLOY_PATH" >> $GITHUB_STEP_SUMMARY
           fi
-          
-          if [[ "${{ steps.check_secrets.outputs.can_deploy_supabase }}" == "true" ]]; then
+
+          if [[ "${{ needs.check-environment.outputs.can_deploy_supabase }}" == "true" ]]; then
             echo "✅ Supabase deployment attempted" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ Supabase deployment skipped - missing required secrets" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           echo "Docker image built and pushed: ${{ needs.build-admin.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "Build completed at: $(date)" >> $GITHUB_STEP_SUMMARY
 

@@ -1110,22 +1110,27 @@ jobs:
         run: |
           echo "Updating source code on server and building stack..."
           ssh -o StrictHostKeyChecking=accept-new ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH' || echo "Code update and build completed with warnings"
-            # Check if the repository exists
-            REPO_DIR="${{ secrets.SOURCE_CODE_PATH || secrets.DEPLOY_PATH }}/repo"
+            # Use DEPLOY_PATH directly without /repo subdirectory
+            REPO_DIR="${{ secrets.DEPLOY_PATH }}"
             if [ -d "$REPO_DIR/.git" ]; then
-              echo "Repository exists, pulling latest changes..."
+              echo "Repository exists, pulling latest changes forcefully..."
               cd "$REPO_DIR"
-              git pull
+              git fetch --all
+              git reset --hard origin/main
+              git clean -fd
             else
               echo "Repository does not exist, cloning..."
+              # Create directory and clear it if needed
               mkdir -p "$REPO_DIR"
+              # Remove all files except .env if it exists (to preserve settings)
+              find "$REPO_DIR" -mindepth 1 -not -name ".env" -exec rm -rf {} \; 2>/dev/null || true
               git clone https://github.com/${{ github.repository }}.git "$REPO_DIR"
             fi
 
             # Build and restart the stack
             echo "Building and restarting the stack..."
             cd "$REPO_DIR"
-            
+
             # If docker-compose.yml exists in the repo root
             if [ -f "docker-compose.yml" ]; then
               echo "Found docker-compose.yml, rebuilding services..."
@@ -1134,7 +1139,7 @@ jobs:
               docker-compose build --no-cache
               docker-compose up -d
               echo "Stack rebuilt and restarted!"
-            
+
             # If docker-compose is in a subdirectory
             elif [ -f "docker/docker-compose.yml" ]; then
               echo "Found docker-compose.yml in docker directory, rebuilding services..."
@@ -1144,11 +1149,11 @@ jobs:
               docker-compose build --no-cache
               docker-compose up -d
               echo "Stack rebuilt and restarted!"
-            
+
             else
               echo "No docker-compose.yml found in standard locations."
             fi
-            
+
             echo "Source code updated and stack rebuilt successfully."
           ENDSSH
         continue-on-error: true

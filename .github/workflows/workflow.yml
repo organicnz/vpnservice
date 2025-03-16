@@ -746,7 +746,7 @@ jobs:
         run: |
           echo "Deploying Supabase Edge Functions..."
           cd supabase
-          supabase login --token "$SUPABASE_ACCESS_TOKEN"
+          # Skip the login command entirely and rely on the environment variable
           supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} || echo "Supabase deployment failed but continuing with server deployment"
         continue-on-error: true
 

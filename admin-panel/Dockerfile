@@ -39,16 +39,51 @@ RUN echo 'module.exports = {' > next.config.js && \
     echo '  images: { unoptimized: true }' >> next.config.js && \
     echo '};' >> next.config.js
 
-# Create a better home page
-RUN echo 'export default function Page() {' > app/page.jsx && \
+# Create a better home page with a working login button
+RUN echo '"use client";' > app/page.jsx && \
+    echo '' >> app/page.jsx && \
+    echo 'import { useState } from "react";' >> app/page.jsx && \
+    echo '' >> app/page.jsx && \
+    echo 'export default function Page() {' >> app/page.jsx && \
+    echo '  const [loading, setLoading] = useState(false);' >> app/page.jsx && \
+    echo '  const [error, setError] = useState("");' >> app/page.jsx && \
+    echo '' >> app/page.jsx && \
+    echo '  const handleLogin = () => {' >> app/page.jsx && \
+    echo '    setLoading(true);' >> app/page.jsx && \
+    echo '    setError("");' >> app/page.jsx && \
+    echo '    ' >> app/page.jsx && \
+    echo '    // Simulating authentication' >> app/page.jsx && \
+    echo '    setTimeout(() => {' >> app/page.jsx && \
+    echo '      setLoading(false);' >> app/page.jsx && \
+    echo '      // For now, just show a success alert' >> app/page.jsx && \
+    echo '      alert("Login successful");' >> app/page.jsx && \
+    echo '      // In a real app, you would redirect to a dashboard or validate credentials' >> app/page.jsx && \
+    echo '    }, 1000);' >> app/page.jsx && \
+    echo '  };' >> app/page.jsx && \
+    echo '' >> app/page.jsx && \
     echo '  return (' >> app/page.jsx && \
     echo '    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">' >> app/page.jsx && \
     echo '      <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">' >> app/page.jsx && \
     echo '        <h1 className="text-3xl font-bold text-center mb-6 text-blue-600">VPN Admin Panel</h1>' >> app/page.jsx && \
     echo '        <p className="text-gray-600 mb-4 text-center">Welcome to the VPN Service administration panel.</p>' >> app/page.jsx && \
+    echo '        {error && <p className="text-red-500 text-center mb-4">{error}</p>}' >> app/page.jsx && \
     echo '        <div className="flex justify-center">' >> app/page.jsx && \
-    echo '          <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">' >> app/page.jsx && \
-    echo '            Login' >> app/page.jsx && \
+    echo '          <button' >> app/page.jsx && \
+    echo '            onClick={handleLogin}' >> app/page.jsx && \
+    echo '            disabled={loading}' >> app/page.jsx && \
+    echo '            className={`bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded flex items-center ${loading ? "opacity-70 cursor-not-allowed" : ""}`}' >> app/page.jsx && \
+    echo '          >' >> app/page.jsx && \
+    echo '            {loading ? (' >> app/page.jsx && \
+    echo '              <>' >> app/page.jsx && \
+    echo '                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">' >> app/page.jsx && \
+    echo '                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>' >> app/page.jsx && \
+    echo '                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>' >> app/page.jsx && \
+    echo '                </svg>' >> app/page.jsx && \
+    echo '                Processing...' >> app/page.jsx && \
+    echo '              </>' >> app/page.jsx && \
+    echo '            ) : (' >> app/page.jsx && \
+    echo '              "Login"' >> app/page.jsx && \
+    echo '            )}' >> app/page.jsx && \
     echo '          </button>' >> app/page.jsx && \
     echo '        </div>' >> app/page.jsx && \
     echo '        <div className="mt-6 border-t pt-4">' >> app/page.jsx && \
@@ -115,14 +150,34 @@ RUN echo '<!DOCTYPE html>' > public/index.html && \
     echo '    p { color: #4b5563; margin-bottom: 1.5rem; text-align: center; }' >> public/index.html && \
     echo '    .spinner { border: 4px solid rgba(0, 0, 0, 0.1); border-left-color: #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 0 auto; }' >> public/index.html && \
     echo '    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }' >> public/index.html && \
+    echo '    button { background-color: #3b82f6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; cursor: pointer; font-weight: bold; }' >> public/index.html && \
+    echo '    button:hover { background-color: #2563eb; }' >> public/index.html && \
     echo '  </style>' >> public/index.html && \
+    echo '  <script>' >> public/index.html && \
+    echo '    function handleLogin() {' >> public/index.html && \
+    echo '      const button = document.getElementById("loginButton");' >> public/index.html && \
+    echo '      const spinner = document.getElementById("spinner");' >> public/index.html && \
+    echo '      button.disabled = true;' >> public/index.html && \
+    echo '      button.textContent = "Processing...";' >> public/index.html && \
+    echo '      spinner.style.display = "block";' >> public/index.html && \
+    echo '      setTimeout(() => {' >> public/index.html && \
+    echo '        alert("Login successful");' >> public/index.html && \
+    echo '        button.disabled = false;' >> public/index.html && \
+    echo '        button.textContent = "Login";' >> public/index.html && \
+    echo '        spinner.style.display = "none";' >> public/index.html && \
+    echo '      }, 1000);' >> public/index.html && \
+    echo '    }' >> public/index.html && \
+    echo '  </script>' >> public/index.html && \
     echo '</head>' >> public/index.html && \
     echo '<body>' >> public/index.html && \
     echo '  <div class="container">' >> public/index.html && \
     echo '    <div class="card">' >> public/index.html && \
     echo '      <h1>VPN Admin Panel</h1>' >> public/index.html && \
     echo '      <p>The application is starting. Please wait...</p>' >> public/index.html && \
-    echo '      <div class="spinner"></div>' >> public/index.html && \
+    echo '      <div class="spinner" id="spinner"></div>' >> public/index.html && \
+    echo '      <div style="text-align: center; margin-top: 1rem;">' >> public/index.html && \
+    echo '        <button id="loginButton" onclick="handleLogin()">Login</button>' >> public/index.html && \
+    echo '      </div>' >> public/index.html && \
     echo '    </div>' >> public/index.html && \
     echo '  </div>' >> public/index.html && \
     echo '</body>' >> public/index.html && \

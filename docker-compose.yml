@@ -48,27 +48,29 @@ services:
         max_attempts: 3
         window: 120s
 
-  # Admin Panel with Supabase integration
+  # Admin Panel with Next.js and Supabase integration
   admin:
     build:
-      context: ./admin-panel
+      context: ./admin-panel-nextjs
       dockerfile: Dockerfile
       args:
         - NODE_ENV=${NODE_ENV:-production}
-        - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL:-https://dummy-value-for-build.supabase.co}
-        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY:-dummy-key-for-build-only}
+        - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:-https://dummy-value-for-build.supabase.co}
+        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-dummy-key-for-build-only}
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api}
+        - NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL:-http://localhost:9002}
     container_name: vpn-admin
     restart: unless-stopped
     depends_on:
       - xui
     environment:
-      - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
       - XUI_PANEL_URL=http://xui:54321
       - XUI_USERNAME=${XUI_USERNAME:-admin}
       - XUI_PASSWORD=${XUI_PASSWORD:-admin}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - JWT_SECRET=${JWT_SECRET:-supersecretjwtsignkey}
       # Performance tuning
       - NODE_ENV=production
       - NODE_OPTIONS=--max-old-space-size=512

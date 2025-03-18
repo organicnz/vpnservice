@@ -588,11 +588,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: ./admin-panel/package-lock.json
-
+      
       - name: Install dependencies
         working-directory: ./admin-panel
         run: npm ci || npm install
-
+      
       - name: Verify Next.js build
         working-directory: ./admin-panel
         run: |
@@ -613,7 +613,7 @@ jobs:
 
           npm run build || echo "Warning: Direct build failed, but will try in Docker"
         continue-on-error: true
-
+      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:

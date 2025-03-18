@@ -16,8 +16,9 @@ export default function ChangePassword() {
       confirmPassword: '',
     }
   });
-  
-  const newPassword = watch('newPassword');
+
+  // For password matching validation
+  const password = watch('newPassword');
 
   useEffect(() => {
     const checkUser = async () => {
@@ -36,21 +37,22 @@ export default function ChangePassword() {
     setLoading(true);
     
     try {
-      // Update password in Supabase
+      // Supabase doesn't have a direct method to change password with the current password
+      // We can use updateUser to change the password
       const { error } = await supabase.auth.updateUser({
-        password: data.newPassword,
+        password: data.newPassword
       });
-      
+
       if (error) throw error;
       
-      toast.success('Password updated successfully');
+      toast.success('Password changed successfully');
       
-      // Redirect to settings page
+      // Redirect back to settings
       setTimeout(() => {
         router.push('/settings');
-      }, 1500);
+      }, 2000);
     } catch (error) {
-      toast.error(error.message || 'Failed to update password');
+      toast.error(error.message || 'Failed to change password');
     } finally {
       setLoading(false);
     }
@@ -66,32 +68,15 @@ export default function ChangePassword() {
             <div className="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
               <div className="md:grid md:grid-cols-3 md:gap-6">
                 <div className="md:col-span-1">
-                  <h3 className="text-lg font-medium leading-6 text-gray-900">Password</h3>
+                  <h3 className="text-lg font-medium leading-6 text-gray-900">Update Your Password</h3>
                   <p className="mt-1 text-sm text-gray-500">
-                    Update your password to keep your account secure.
+                    Enter your new password below. Your password should be at least 6 characters long.
                   </p>
                 </div>
                 
                 <div className="mt-5 md:mt-0 md:col-span-2">
                   <form onSubmit={handleSubmit(onSubmit)}>
                     <div className="grid grid-cols-6 gap-6">
-                      <div className="col-span-6">
-                        <label htmlFor="currentPassword" className="block text-sm font-medium text-gray-700">
-                          Current Password
-                        </label>
-                        <input
-                          type="password"
-                          id="currentPassword"
-                          className="mt-1 input w-full"
-                          {...register('currentPassword', {
-                            required: 'Current password is required',
-                          })}
-                        />
-                        {errors.currentPassword && (
-                          <p className="mt-1 text-sm text-red-600">{errors.currentPassword.message}</p>
-                        )}
-                      </div>
-                      
                       <div className="col-span-6">
                         <label htmlFor="newPassword" className="block text-sm font-medium text-gray-700">
                           New Password
@@ -103,8 +88,8 @@ export default function ChangePassword() {
                           {...register('newPassword', {
                             required: 'New password is required',
                             minLength: {
-                              value: 8,
-                              message: 'Password must be at least 8 characters',
+                              value: 6,
+                              message: 'Password must be at least 6 characters',
                             },
                           })}
                         />
@@ -115,7 +100,7 @@ export default function ChangePassword() {
                       
                       <div className="col-span-6">
                         <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
-                          Confirm Password
+                          Confirm New Password
                         </label>
                         <input
                           type="password"
@@ -123,7 +108,7 @@ export default function ChangePassword() {
                           className="mt-1 input w-full"
                           {...register('confirmPassword', {
                             required: 'Please confirm your password',
-                            validate: value => value === newPassword || 'The passwords do not match',
+                            validate: value => value === password || 'Passwords do not match',
                           })}
                         />
                         {errors.confirmPassword && (

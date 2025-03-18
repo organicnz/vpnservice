@@ -51,7 +51,7 @@ services:
   # Admin Panel with Next.js and Supabase integration
   admin:
     build:
-      context: ./admin-panel-nextjs
+      context: ./admin-panel
       dockerfile: Dockerfile
       args:
         - NODE_ENV=${NODE_ENV:-production}
@@ -66,6 +66,9 @@ services:
     environment:
       - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - XUI_PANEL_URL=http://xui:54321
       - XUI_USERNAME=${XUI_USERNAME:-admin}
       - XUI_PASSWORD=${XUI_PASSWORD:-admin}

@@ -10,10 +10,15 @@ export default function Settings() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState({
+    tested: false,
+    success: false,
+    message: '',
+  });
   
   const { register, handleSubmit, setValue, formState: { errors } } = useForm({
     defaultValues: {
-      xuiUrl: process.env.NEXT_PUBLIC_XUI_PANEL_URL || '',
+      xuiUrl: '',
       xuiUsername: '',
       xuiPassword: '',
     }
@@ -32,14 +37,39 @@ export default function Settings() {
     checkUser();
   }, [router]);
 
+  useEffect(() => {
+    // Load values from localStorage or default environment variables
+    try {
+      // First try to get from localStorage
+      const savedSettings = localStorage.getItem('xuiSettings');
+      if (savedSettings) {
+        const { xuiUrl, xuiUsername, xuiPassword } = JSON.parse(savedSettings);
+        setValue('xuiUrl', xuiUrl);
+        setValue('xuiUsername', xuiUsername);
+        setValue('xuiPassword', xuiPassword);
+        return;
+      }
+      
+      // Fallback to XuiApi current settings
+      setValue('xuiUrl', xuiApi.baseUrl || '');
+      setValue('xuiUsername', xuiApi.username || '');
+      setValue('xuiPassword', xuiApi.password || '');
+    } catch (error) {
+      console.error('Error loading XUI settings:', error);
+    }
+  }, [setValue]);
+
   const onSubmit = async (data) => {
     setLoading(true);
     
     try {
-      // Here we would save settings to Supabase or local storage
-      // For this example, we'll just show a success message
-      localStorage.setItem('xuiSettings', JSON.stringify(data));
+      // Update XuiApi settings
+      xuiApi.updateSettings(data.xuiUrl, data.xuiUsername, data.xuiPassword);
+      
       toast.success('Settings saved successfully');
+      
+      // Test the connection with new settings
+      await testConnection();
     } catch (error) {
       toast.error(error.message || 'Failed to save settings');
     } finally {
@@ -49,37 +79,45 @@ export default function Settings() {
 
   const testConnection = async () => {
     setTestingConnection(true);
+    setConnectionStatus({
+      tested: false,
+      success: false,
+      message: '',
+    });
     
     try {
       const { xuiUrl, xuiUsername, xuiPassword } = await new Promise(resolve => {
-        const storedSettings = localStorage.getItem('xuiSettings');
-        if (storedSettings) {
-          resolve(JSON.parse(storedSettings));
-        } else {
-          // Use form values if nothing in storage
-          const formValues = {
-            xuiUrl: document.getElementById('xuiUrl').value,
-            xuiUsername: document.getElementById('xuiUsername').value,
-            xuiPassword: document.getElementById('xuiPassword').value,
-          };
-          resolve(formValues);
-        }
+        const formValues = {
+          xuiUrl: document.getElementById('xuiUrl').value,
+          xuiUsername: document.getElementById('xuiUsername').value,
+          xuiPassword: document.getElementById('xuiPassword').value,
+        };
+        resolve(formValues);
       });
       
-      // Override the xuiApi settings for this test
-      xuiApi.baseUrl = xuiUrl;
-      xuiApi.username = xuiUsername;
-      xuiApi.password = xuiPassword;
-      
-      // Test login
-      const result = await xuiApi.login();
+      const result = await xuiApi.testConnection(xuiUrl, xuiUsername, xuiPassword);
       
       if (result.success) {
+        setConnectionStatus({
+          tested: true,
+          success: true,
+          message: 'Connection successful!',
+        });
         toast.success('Connection successful!');
       } else {
+        setConnectionStatus({
+          tested: true,
+          success: false,
+          message: result.msg || 'Connection failed with unknown error',
+        });
         toast.error('Connection failed: ' + (result.msg || 'Unknown error'));
       }
     } catch (error) {
+      setConnectionStatus({
+        tested: true,
+        success: false,
+        message: error.message || 'Connection test failed',
+      });
       toast.error('Connection test failed: ' + (error.message || 'Unknown error'));
     } finally {
       setTestingConnection(false);
@@ -113,22 +151,27 @@ export default function Settings() {
                         <label htmlFor="xuiUrl" className="block text-sm font-medium text-gray-700">
                           Panel URL
                         </label>
-                        <input
-                          type="text"
-                          id="xuiUrl"
-                          className="mt-1 input w-full"
-                          placeholder="https://your-panel-url.com"
-                          {...register('xuiUrl', {
-                            required: 'Panel URL is required',
-                            pattern: {
-                              value: /^https?:\/\/.+/i,
-                              message: 'Must be a valid URL starting with http:// or https://',
-                            },
-                          })}
-                        />
-                        {errors.xuiUrl && (
-                          <p className="mt-1 text-sm text-red-600">{errors.xuiUrl.message}</p>
-                        )}
+                        <div className="mt-1">
+                          <input
+                            type="text"
+                            id="xuiUrl"
+                            className="mt-1 input w-full"
+                            placeholder="http://localhost:9001"
+                            {...register('xuiUrl', {
+                              required: 'Panel URL is required',
+                              pattern: {
+                                value: /^https?:\/\/.+/i,
+                                message: 'Must be a valid URL starting with http:// or https://',
+                              },
+                            })}
+                          />
+                          {errors.xuiUrl && (
+                            <p className="mt-1 text-sm text-red-600">{errors.xuiUrl.message}</p>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-gray-500">
+                          Example: http://localhost:9001 or https://your-vpn-server.com:9001
+                        </p>
                       </div>
                       
                       <div className="col-span-6 sm:col-span-3">
@@ -165,6 +208,16 @@ export default function Settings() {
                         )}
                       </div>
                     </div>
+                    
+                    {connectionStatus.tested && (
+                      <div className={`mt-4 p-3 rounded text-sm ${
+                        connectionStatus.success 
+                          ? 'bg-green-50 text-green-700' 
+                          : 'bg-red-50 text-red-700'
+                      }`}>
+                        <p>{connectionStatus.message}</p>
+                      </div>
+                    )}
                     
                     <div className="mt-6 flex justify-end space-x-3">
                       <button

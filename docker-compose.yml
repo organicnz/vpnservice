@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Global x-* fields for reuse
 x-logging: &default-logging
   driver: json-file
@@ -15,22 +13,17 @@ x-healthcheck: &default-healthcheck
 
 services:
   # 3x-ui VPN Panel - using a different, more reliable image
-  xui:
+  xray-ui:
     image: enwaiax/x-ui:latest
     container_name: xray-ui
-    restart: unless-stopped
-    ports:
-      - 9001:54321 # Panel port (external:internal) - changed to avoid conflict
-      - 9443:443   # HTTPS port (for Xray services) - changed to avoid conflict
-      - 9080:80    # HTTP port (for certbot) - changed to avoid conflict
-    environment:
-      - TZ=${TIMEZONE:-Europe/Moscow}
-      - XRAY_VMESS_AEAD_FORCED=${XRAY_VMESS_AEAD_FORCED:-false}
-      - XUI_USERNAME=${XUI_USERNAME:-admin}
-      - XUI_PASSWORD=${XUI_PASSWORD:-admin}
+    user: root
+    restart: always
     volumes:
       - xui_db_data:/etc/x-ui/:rw
-      - xui_cert_data:/root/cert/:ro
+    ports:
+      - 9080:80  # Changed from 80:80 to avoid conflict
+      - 9443:443  # Changed from 443:443
+      - 9001:54321  # Panel admin port - this is the important port for admin interface
     networks:
       - vpn-network
     healthcheck:
@@ -49,34 +42,28 @@ services:
         window: 120s
 
   # Admin Panel with Next.js and Supabase integration
-  admin:
+  vpn-admin:
+    image: vpn-admin
     build:
       context: ./admin-panel
       dockerfile: Dockerfile
-      args:
-        - NODE_ENV=${NODE_ENV:-production}
-        - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:-https://dummy-value-for-build.supabase.co}
-        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-dummy-key-for-build-only}
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api}
-        - NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL:-http://localhost:9002}
     container_name: vpn-admin
-    restart: unless-stopped
-    depends_on:
-      - xui
+    restart: always
     environment:
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-      - XUI_PANEL_URL=http://xui:54321
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:-http://localhost:54321}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}
+      - SUPABASE_URL=${SUPABASE_URL:-http://localhost:54321}
+      - SUPABASE_KEY=${SUPABASE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM6CXBVT-nOB_2mZVr0CX_RBd9k2QTS9qU_K_GAeQ}
+      # Fix the port mismatch to use the correct port (54321)
+      - XUI_PANEL_URL=http://xray-ui:54321
       - XUI_USERNAME=${XUI_USERNAME:-admin}
       - XUI_PASSWORD=${XUI_PASSWORD:-admin}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - JWT_SECRET=${JWT_SECRET:-supersecretjwtsignkey}
-      # Performance tuning
-      - NODE_ENV=production
-      - NODE_OPTIONS=--max-old-space-size=512
+      - JWT_SECRET=${JWT_SECRET:-your-jwt-secret-change-this-in-production}
+      - TZ=${TIMEZONE:-Europe/Moscow}
+      - XRAY_VMESS_AEAD_FORCED=${XRAY_VMESS_AEAD_FORCED:-false}
+      - SECURITY_PANEL_ENFORCE_HTTPS=false
+      - WEBUI_LANGUAGE=en-US
     ports:
       - 9002:3000  # Map container's 3000 port to host's 9002 - changed to avoid conflict
     networks:
@@ -84,13 +71,13 @@ services:
     logging: *default-logging
     healthcheck:
       <<: *default-healthcheck
-      test: [CMD, wget, -qO-, http://localhost:3000/]
+      test: [CMD-SHELL, wget -qO- http://localhost:3000/ || exit 1]
     # Security and resource limits
     deploy:
       resources:
         limits:
           cpus: '0.5'
-          memory: 500M
+          memory: 512M
       restart_policy:
         condition: on-failure
         max_attempts: 3
@@ -115,6 +102,4 @@ networks:
 # Named volumes for data persistence
 volumes:
   xui_db_data:
-    driver: local
-  xui_cert_data:
     driver: local

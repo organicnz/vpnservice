@@ -168,6 +168,7 @@ jobs:
                 - XUI_USERNAME=${XUI_USERNAME:-admin}
                 - XUI_PASSWORD=${XUI_PASSWORD:-admin}
                 - SECURITY_PANEL_ENFORCE_HTTPS=false
+                - WEBUI_LANGUAGE=en-US
               volumes:
                 - xui_db_data:/etc/x-ui/:rw
                 - xui_cert_data:/root/cert/:ro
@@ -786,6 +787,7 @@ jobs:
                 - XUI_USERNAME=${XUI_USERNAME:-admin}
                 - XUI_PASSWORD=${XUI_PASSWORD:-admin}
                 - SECURITY_PANEL_ENFORCE_HTTPS=false
+                - WEBUI_LANGUAGE=en-US
               volumes:
                 - xui_db_data:/etc/x-ui/:rw
                 - xui_cert_data:/root/cert/:ro

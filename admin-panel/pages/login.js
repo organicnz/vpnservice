@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-hot-toast';
-import supabase from '../lib/supabase';
+import supabase, { supabase as supabaseClient } from '../lib/supabase';
 
 export default function Login() {
   const [loading, setLoading] = useState(false);
@@ -13,6 +13,11 @@ export default function Login() {
   const onSubmit = async (data) => {
     try {
       setLoading(true);
+      
+      // Ensure Supabase client exists
+      if (!supabase || !supabase.auth) {
+        throw new Error('Authentication service unavailable. Please check your connection and try again.');
+      }
       
       // Try Supabase authentication
       const { error } = await supabase.auth.signInWithPassword({
@@ -25,6 +30,7 @@ export default function Login() {
       // If successful, redirect to dashboard
       router.push('/');
     } catch (error) {
+      console.error('Login error:', error);
       toast.error(error.message || 'Login failed');
     } finally {
       setLoading(false);

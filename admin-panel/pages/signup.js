@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-hot-toast';
-import supabase from '../lib/supabase';
+import supabase, { supabase as supabaseClient } from '../lib/supabase';
 
 export default function Signup() {
   const [loading, setLoading] = useState(false);
@@ -26,6 +26,10 @@ export default function Signup() {
       setLoading(true);
       
       // Check if Supabase is configured before attempting signup
+      if (!supabase || !supabase.auth) {
+        throw new Error('Authentication service unavailable. Please check your connection and try again.');
+      }
+      
       if (!connectionInfo.url || connectionInfo.url === 'Not set' || !connectionInfo.hasKey) {
         throw new Error('Supabase is not properly configured. Please check your environment variables.');
       }

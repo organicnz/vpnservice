@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import Layout from '../components/Layout';
 import { toast } from 'react-hot-toast';
 import xuiApi from '../lib/xuiApi';
+import { FiCopy } from 'react-icons/fi';
 
 export default function Clients() {
   const router = useRouter();
@@ -162,7 +163,7 @@ export default function Clients() {
     );
   };
 
-  const clients = selectedInbound ? getClientsFromInbound(selectedInbound) : [];
+  const inboundClients = selectedInbound ? getClientsFromInbound(selectedInbound) : [];
 
   return (
     <Layout>
@@ -325,72 +326,79 @@ export default function Clients() {
                 )}
                 
                 {/* Clients Table */}
-                <div className="mt-4 flex flex-col">
-                  <div className="-my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
-                    <div className="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
-                      <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg">
-                        {clients.length === 0 ? (
-                          <div className="bg-white p-6 text-center text-gray-500">
-                            No clients found for this inbound.
-                          </div>
-                        ) : (
-                          <table className="min-w-full divide-y divide-gray-200">
+                {inboundClients.length > 0 ? (
+                  <div className="mt-8 flex flex-col">
+                    <div className="-my-2 -mx-4 overflow-x-auto sm:-mx-6 lg:-mx-8">
+                      <div className="inline-block min-w-full py-2 align-middle md:px-6 lg:px-8">
+                        <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
+                          <table className="min-w-full divide-y divide-gray-300">
                             <thead className="bg-gray-50">
                               <tr>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Email/Name
+                                <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">
+                                  Email
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Device Limit
-                                </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Expiry Date
-                                </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
                                   UUID
                                 </th>
-                                <th scope="col" className="relative px-6 py-3">
+                                <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                                  IP Limit
+                                </th>
+                                <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                                  Expiry Date
+                                </th>
+                                <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-6">
                                   <span className="sr-only">Actions</span>
                                 </th>
                               </tr>
                             </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                              {clients.map((client, index) => (
+                            <tbody className="divide-y divide-gray-200 bg-white">
+                              {inboundClients.map((client, index) => (
                                 <tr key={client.id || index}>
-                                  <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-gray-900">
-                                      {client.email || 'Unnamed Client'}
+                                  <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
+                                    {client.email}
+                                  </td>
+                                  <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                                    <div className="flex items-center">
+                                      <span className="truncate max-w-xs">{client.id}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => copyToClipboard(client.id)}
+                                        className="ml-2 p-1 text-gray-400 hover:text-gray-500"
+                                      >
+                                        <FiCopy className="h-4 w-4" />
+                                      </button>
                                     </div>
                                   </td>
-                                  <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm text-gray-900">{client.limitIp || 1}</div>
+                                  <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                                    {client.limitIp || 'No limit'}
                                   </td>
-                                  <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm text-gray-900">{formatDate(client.expiryTime)}</div>
+                                  <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                                    {formatDate(client.expiryTime)}
                                   </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    <div className="max-w-xs truncate">
-                                      {client.id}
-                                    </div>
-                                  </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                  <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
                                     <button
-                                      onClick={() => copyToClipboard(client.id)}
-                                      className="text-primary-600 hover:text-primary-900 mr-4"
+                                      type="button"
+                                      className="text-primary-600 hover:text-primary-900"
+                                      onClick={() => {
+                                        // Handle edit or view client
+                                      }}
                                     >
-                                      Copy UUID
+                                      Edit<span className="sr-only">, {client.email}</span>
                                     </button>
-                                    {/* Additional actions can be added here */}
                                   </td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
-                        )}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <p className="text-gray-500 text-lg">No clients found in this inbound</p>
+                  </div>
+                )}
               </div>
             )}
             

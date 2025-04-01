@@ -12,9 +12,9 @@ x-healthcheck: &default-healthcheck
   start_period: 20s
 
 services:
-  # 3x-ui VPN Panel - using a different, more reliable image
+  # 3x-ui VPN Panel - using alireza7 fork and pinned version
   xray-ui:
-    image: enwaiax/x-ui:latest
+    image: alireza7/x-ui:2.1.5 # Pinned version - verify latest stable tag if needed
     container_name: xray-ui
     user: root
     restart: always
@@ -50,16 +50,16 @@ services:
     container_name: vpn-admin
     restart: always
     environment:
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:-http://localhost:54321}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}
-      - SUPABASE_URL=${SUPABASE_URL:-http://localhost:54321}
-      - SUPABASE_KEY=${SUPABASE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM6CXBVT-nOB_2mZVr0CX_RBd9k2QTS9qU_K_GAeQ}
-      # Fix the port mismatch to use the correct port (54321)
-      - XUI_PANEL_URL=http://xray-ui:54321
-      - XUI_USERNAME=${XUI_USERNAME:-admin}
-      - XUI_PASSWORD=${XUI_PASSWORD:-admin}
-      - JWT_SECRET=${JWT_SECRET:-your-jwt-secret-change-this-in-production}
+      # Ensure Supabase URLs point to your actual Supabase instance if used, otherwise remove/comment out.
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - XUI_PANEL_URL=http://xray-ui:54321 # Internal communication
+      - XUI_USERNAME=${XUI_USERNAME}
+      - XUI_PASSWORD=${XUI_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
       - TZ=${TIMEZONE:-Europe/Moscow}
       - XRAY_VMESS_AEAD_FORCED=${XRAY_VMESS_AEAD_FORCED:-false}
       - SECURITY_PANEL_ENFORCE_HTTPS=false
@@ -87,6 +87,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    depends_on:
+      - xray-ui # Ensure xray-ui starts first
 
 networks:
   vpn-network:
